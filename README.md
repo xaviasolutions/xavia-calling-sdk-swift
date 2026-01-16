@@ -469,3 +469,10 @@ All delegate methods are optional (have default implementations):
 ## License
 
 MIT
+
+## Support
+
+For issues and support, contact: contact@xaviasolutions.com
+
+## Developed by
+www.xaviasolutions.com
