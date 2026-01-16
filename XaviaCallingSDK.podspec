@@ -9,14 +9,14 @@ Pod::Spec.new do |spec|
     and full call lifecycle control.
   DESC
 
-  spec.homepage     = 'https://github.com/yourusername/XaviaCallingSDK'
+  spec.homepage     = 'https://github.com/xaviasolutions/xavia-calling-sdk-swift'
   spec.license      = { :type => 'MIT', :file => 'LICENSE' }
-  spec.author       = { 'Xavia' => 'info@xavia.com' }
+  spec.author       = { 'Xavia' => 'shaheer@xaviasolutions.com' }
   
   spec.platform     = :ios, '12.0'
   spec.swift_version = '5.0'
   
-  spec.source       = { :git => 'https://github.com/yourusername/XaviaCallingSDK.git', :tag => spec.version.to_s }
+  spec.source       = { :git => 'https://github.com/xaviasolutions/xavia-calling-sdk-swift.git', :tag => spec.version.to_s }
   spec.source_files = 'XaviaCallingSDK-Swift/**/*.swift'
   
   spec.frameworks   = 'Foundation', 'AVFoundation', 'CoreVideo', 'VideoToolbox', 'CoreMedia', 'CoreTelephony', 'GLKit'
