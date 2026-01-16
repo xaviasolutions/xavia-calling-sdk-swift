@@ -475,4 +475,4 @@ MIT
 For issues and support, contact: contact@xaviasolutions.com
 
 ## Developed by
-www.xaviasolutions.com
+xaviasolutions.com
