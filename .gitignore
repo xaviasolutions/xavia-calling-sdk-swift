@@ -1,0 +1,73 @@
+# Cocoapods
+Pods/
+Podfile.lock
+*.podspec.lock
+
+# Xcode
+build/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcworkspace/xcshareddata/
+xcshareddata/
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+xcuserdata/
+*.xcworkspace/
+
+# Xcode private settings
+*.private.xcworkspace/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+
+# Testing
+.coverage
+coverage/
+*.lcov
+
+# Dependencies
+.env
+.env.local
+node_modules/
+
+# Build artifacts
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+
+# Swift Package Manager
+.swiftpm/
+Package.resolved
+.build/
+
+# Carthage
+Carthage/Build/
+
+# Generated files
+*.generated.swift
+
+# OS
+Thumbs.db
+ehthumbs.db
