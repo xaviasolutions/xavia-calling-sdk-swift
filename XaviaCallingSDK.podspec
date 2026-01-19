@@ -1,28 +1,34 @@
-Pod::Spec.new do |spec|
-  spec.name         = 'XaviaCallingSDK'
-  spec.version      = '1.0.0'
-  spec.summary      = 'Native iOS WebRTC calling SDK for Xavia'
-  spec.description  = <<-DESC
-    XaviaCallingSDK is a production-ready, service-only iOS native SDK for WebRTC-based calling.
-    It provides complete peer-to-peer and group calling functionality with automatic dependency management.
-    Features include socket.io signaling, WebRTC peer connections, local/remote stream management,
-    and full call lifecycle control.
+Pod::Spec.new do |s|
+  s.name             = 'XaviaCalling'
+  s.version          = '1.0.0'
+  s.summary          = 'Native iOS WebRTC video/audio calling SDK'
+  s.description      = <<-DESC
+  Lightweight native WebRTC calling service with Socket.IO signaling
   DESC
 
-  spec.homepage     = 'https://github.com/xaviasolutions/xavia-calling-sdk-swift'
-  spec.license      = { :type => 'MIT', :file => 'LICENSE' }
-  spec.author       = { 'Xavia' => 'shaheer@xaviasolutions.com' }
-  
-  spec.platform     = :ios, '12.0'
-  spec.swift_version = '5.0'
-  
-  spec.source       = { :git => 'https://github.com/xaviasolutions/xavia-calling-sdk-swift.git', :tag => spec.version.to_s }
-  spec.source_files = 'XaviaCallingSDK-Swift/**/*.swift'
-  
-  spec.frameworks   = 'Foundation', 'AVFoundation', 'CoreVideo', 'VideoToolbox', 'CoreMedia', 'CoreTelephony', 'GLKit'
-  
-  spec.dependency 'WebRTC', '~> 63.11'
-  spec.dependency 'Socket.IO-Client-Swift', '~> 16.0'
-  
-  spec.requires_arc = true
+  s.homepage         = 'https://github.com/xaviasolutions/xavia-calling-sdk-swift'
+  s.license          = { :type => 'MIT', :file => 'LICENSE' }
+  s.author           = { 'Your Name' => 'your@email.com' }
+  s.source           = { :git => 'https://github.com/xaviasolutions/xavia-calling-sdk-swift', :tag => s.version.to_s }
+
+  s.ios.deployment_target = '12.0'
+  s.swift_version    = '5.7'
+
+  s.source_files     = 'XaviaCalling/**/*.{swift}'
+  s.requires_arc     = true
+
+  s.dependency 'WebRTC', '~> 141.0'               # ← from https://github.com/stasel/WebRTC
+  s.dependency 'Socket.IO-Client-Swift', '~> 16.1'
+
+  s.frameworks       = 'AVFoundation', 'Foundation', 'UIKit'
+
+  s.static_framework = true
+
+  s.pod_target_xcconfig = {
+    'ENABLE_BITCODE'               => 'NO',
+    'OTHER_LDFLAGS'                => '$(inherited) -ObjC',
+    'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) WEBRTC_IOS=1'
+  }
+
+  s.user_target_xcconfig = { 'ENABLE_BITCODE' => 'NO' }
 end
