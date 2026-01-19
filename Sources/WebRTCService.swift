@@ -31,8 +31,15 @@ public final class WebRTCService: NSObject {
     private var iceServers: [[String: Any]]?
 
     private let factory = RTCPeerConnectionFactory()
+    private var videoCapturer: RTCCameraVideoCapturer?
+    private var videoSource: RTCVideoSource?
 
     // MARK: - Connect
+
+    // Convenience overload to preserve existing call sites
+    public func connect(serverUrl: String, userId: String, userName: String) {
+        connect(serverUrl: serverUrl, userId: userId, userName: userName) { _ in }
+    }
 
     public func connect(serverUrl: String, userId: String, userName: String, 
                        completion: @escaping (Result<Void, Error>) -> Void) {
@@ -235,26 +242,129 @@ public final class WebRTCService: NSObject {
 
     // MARK: - Media
 
+    // Backwards-compatible convenience
+    public func getLocalMedia() {
+        getLocalMedia(constraints: [:]) { _ in }
+    }
+
     public func getLocalMedia(constraints: [String: Any] = [:],
-                            completion: @escaping (Result<RTCMediaStream, Error>) -> Void) {
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                              completion: @escaping (Result<RTCMediaStream, Error>) -> Void) {
+        // Request permissions first
+        func requestPermissions(_ done: @escaping (Bool, Bool) -> Void) {
+            var videoGranted = false
+            var audioGranted = false
+
+            let group = DispatchGroup()
+
+            group.enter()
+            AVCaptureDevice.requestAccess(for: .video) { granted in
+                videoGranted = granted
+                group.leave()
+            }
+
+            group.enter()
+            AVCaptureDevice.requestAccess(for: .audio) { granted in
+                audioGranted = granted
+                group.leave()
+            }
+
+            group.notify(queue: .main) {
+                done(videoGranted, audioGranted)
+            }
+        }
+
+        requestPermissions { [weak self] videoOK, audioOK in
             guard let self else { return }
-            
-            let stream = self.factory.mediaStream(withStreamId: "local")
 
-            let audioTrack = self.factory.audioTrack(withTrackId: "audio0")
-            stream.addAudioTrack(audioTrack)
+            if !videoOK || !audioOK {
+                let reason = !videoOK && !audioOK ? "camera and microphone" : (!videoOK ? "camera" : "microphone")
+                let err = NSError(domain: "WebRTCService", code: -1,
+                                   userInfo: [NSLocalizedDescriptionKey: "Permission denied for \(reason)"])
+                self.delegate?.onError(err.localizedDescription)
+                completion(.failure(err))
+                return
+            }
 
-            let videoSource = self.factory.videoSource()
-            let capturer = RTCCameraVideoCapturer(delegate: videoSource)
-            let videoTrack = self.factory.videoTrack(with: videoSource, trackId: "video0")
-            stream.addVideoTrack(videoTrack)
+            // Configure audio session (iOS only)
+            #if os(iOS)
+            do {
+                let session = AVAudioSession.sharedInstance()
+                try session.setCategory(.playAndRecord, mode: .videoChat, options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP])
+                try session.setActive(true)
+            } catch {
+                self.delegate?.onError("Failed to configure audio session: \(error.localizedDescription)")
+            }
+            #endif
 
-            self.localStream = stream
-            
-            DispatchQueue.main.async {
-                self.delegate?.onLocalStream(stream)
-                completion(.success(stream))
+            // Prepare local stream and start camera capture
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                guard let self else { return }
+
+                let stream = self.factory.mediaStream(withStreamId: "local")
+
+                // Audio
+                let audioTrack = self.factory.audioTrack(withTrackId: "audio0")
+                stream.addAudioTrack(audioTrack)
+
+                // Video
+                let vSource = self.factory.videoSource()
+                self.videoSource = vSource
+                let capturer = RTCCameraVideoCapturer(delegate: vSource)
+                self.videoCapturer = capturer
+                let videoTrack = self.factory.videoTrack(with: vSource, trackId: "video0")
+                stream.addVideoTrack(videoTrack)
+
+                // Choose device and format
+                let devices = RTCCameraVideoCapturer.captureDevices()
+                #if os(iOS)
+                let preferredPos: AVCaptureDevice.Position = .front
+                let device = devices.first(where: { $0.position == preferredPos }) ?? devices.first
+                #else
+                let device = devices.first
+                #endif
+
+                if let device {
+                    let formats = RTCCameraVideoCapturer.supportedFormats(for: device)
+                    // Prefer 1280x720, else highest resolution
+                    let targetWidth = 1280
+                    let targetHeight = 720
+
+                    var selectedFormat: AVCaptureDevice.Format? = formats.first
+                    var selectedDimension: CMVideoDimensions = CMVideoDimensions(width: 0, height: 0)
+
+                    for f in formats {
+                        let desc = CMFormatDescriptionGetDimensions(f.formatDescription)
+                        if desc.width == targetWidth && desc.height == targetHeight {
+                            selectedFormat = f
+                            selectedDimension = desc
+                            break
+                        }
+                        if desc.width > selectedDimension.width || desc.height > selectedDimension.height {
+                            selectedFormat = f
+                            selectedDimension = desc
+                        }
+                    }
+
+                    let fpsRanges = selectedFormat?.videoSupportedFrameRateRanges ?? []
+                    let maxFps = fpsRanges.map { $0.maxFrameRate }.max() ?? 30
+                    let fps = min(30, Int(maxFps))
+
+                    capturer.startCapture(with: device, format: selectedFormat!, fps: fps) { error in
+                        if let error {
+                            DispatchQueue.main.async { [weak self] in
+                                self?.delegate?.onError("Failed to start video capture: \(error.localizedDescription)")
+                            }
+                        }
+                    }
+                }
+
+                self.localStream = stream
+
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.delegate?.onLocalStream(stream)
+                    completion(.success(stream))
+                }
             }
         }
     }
@@ -381,8 +491,18 @@ public final class WebRTCService: NSObject {
             }
         } else if type == "ice-candidate" {
             guard let signalData = data["signal"] as? [String: Any],
-                  let candidate = signalData["candidate"] as? String,
-                  let sdpMLineIndex = signalData["sdpMLineIndex"] as? Int32 else { return }
+                  let candidate = signalData["candidate"] as? String else { return }
+
+            var mLineIndex: Int32?
+            if let idx = signalData["sdpMLineIndex"] as? Int {
+                mLineIndex = Int32(idx)
+            } else if let idx = signalData["sdpMLineIndex"] as? NSNumber {
+                mLineIndex = idx.int32Value
+            } else if let idx = signalData["sdpMLineIndex"] as? Int32 {
+                mLineIndex = idx
+            }
+            guard let sdpMLineIndex = mLineIndex else { return }
+
             let c = RTCIceCandidate(sdp: candidate,
                                     sdpMLineIndex: sdpMLineIndex,
                                     sdpMid: signalData["sdpMid"] as? String)
@@ -461,6 +581,14 @@ public final class WebRTCService: NSObject {
         peerInitiators.removeAll()
         remoteStreams.removeAll()
         localStream = nil
+        // Stop camera capture
+        videoCapturer?.stopCapture()
+        videoCapturer = nil
+        videoSource = nil
+        #if os(iOS)
+        // Optionally deactivate audio session
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        #endif
         currentCallId = nil
         currentParticipantId = nil
     }
