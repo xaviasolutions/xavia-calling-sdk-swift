@@ -374,6 +374,32 @@ public final class WebRTCService: NSObject {
         socket?.emit("reject-call", ["callId": callId, "callerId": callerId])
     }
 
+    public func sendCallInvitation(targetUserId: String, callId: String, callType: String,
+                                   completion: @escaping (Result<[String: Any], Error>) -> Void) {
+        socket?.emitWithAck("send-call-invitation", [
+            "targetUserId": targetUserId,
+            "callId": callId,
+            "callType": callType,
+            "callerId": userId ?? "",
+            "callerName": userName ?? ""
+        ]).timingOut(after: 10) { [weak self] response in
+            if let responseArray = response as? [[String: Any]], let data = responseArray.first as? [String: Any] {
+                if data["success"] as? Bool == true {
+                    completion(.success(data))
+                } else {
+                    let errorMsg = data["error"] as? String ?? "Failed to send call invitation"
+                    let error = NSError(domain: "WebRTCService", code: -1,
+                                        userInfo: [NSLocalizedDescriptionKey: errorMsg])
+                    completion(.failure(error))
+                }
+            } else {
+                let error = NSError(domain: "WebRTCService", code: -1,
+                                    userInfo: [NSLocalizedDescriptionKey: "Invalid response"])
+                completion(.failure(error))
+            }
+        }
+    }
+
     public func leaveCall() {
         guard let callId = currentCallId else { return }
         socket?.emit("leave-call", ["callId": callId, "reason": "left"])
