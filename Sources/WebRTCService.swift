@@ -19,6 +19,7 @@ public final class WebRTCService: NSObject {
     private var manager: SocketManager?
 
     private var peerConnections: [String: RTCPeerConnection] = [:]
+    private var peerInitiators: [String: Bool] = [:] // Track who initiated each connection
     private var remoteStreams: [String: RTCMediaStream] = [:]
     private var localStream: RTCMediaStream?
 
@@ -249,6 +250,7 @@ public final class WebRTCService: NSObject {
         }
 
         peerConnections[participantId] = pc
+        peerInitiators[participantId] = isInitiator
 
         if let localStream = localStream {
             localStream.videoTracks.forEach { track in
@@ -360,6 +362,7 @@ public final class WebRTCService: NSObject {
     private func removePeerConnection(participantId: String) {
         peerConnections[participantId]?.close()
         peerConnections.removeValue(forKey: participantId)
+        peerInitiators.removeValue(forKey: participantId)
         remoteStreams.removeValue(forKey: participantId)
         delegate?.onRemoteStreamRemoved(participantId: participantId)
     }
@@ -419,6 +422,7 @@ public final class WebRTCService: NSObject {
         socket?.emit("leave-call", ["callId": callId, "reason": "left"])
         peerConnections.values.forEach { $0.close() }
         peerConnections.removeAll()
+        peerInitiators.removeAll()
         remoteStreams.removeAll()
         localStream = nil
         currentCallId = nil
@@ -537,34 +541,10 @@ extension WebRTCService: RTCPeerConnectionDelegate {
     // MARK: - Negotiation & DataChannel
     
     public func peerConnectionShouldNegotiate(_ peerConnection: RTCPeerConnection) {
-        guard let participantId = peerConnections.first(where: { $0.value === peerConnection })?.key else {
-            return
-        }
-        
-        print("📡 Negotiation needed with \(participantId)")
-        
-        // Create and send offer for renegotiation
-        let offerConstraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
-        peerConnection.offer(for: offerConstraints) { [weak self, weak peerConnection] sdp, error in
-            guard let self, let peerConnection, let sdp, error == nil else {
-                self?.delegate?.onError("Failed to create renegotiation offer: \(error?.localizedDescription ?? "unknown")")
-                return
-            }
-            
-            peerConnection.setLocalDescription(sdp) { error in
-                if let error {
-                    self.delegate?.onError("Failed to set local description for renegotiation: \(error.localizedDescription)")
-                    return
-                }
-                
-                self.socket?.emit("signal", [
-                    "callId": self.currentCallId ?? "",
-                    "targetId": participantId,
-                    "signal": ["sdp": sdp.sdp, "type": sdp.type.rawValue],
-                    "type": "offer"
-                ])
-            }
-        }
+        // NOTE: Negotiation is handled by signal/offer-answer mechanism
+        // Do NOT create offers here - only initiators create initial offers
+        // This callback just indicates renegotiation may be needed
+        // The signaling layer handles actual SDP exchange to avoid state conflicts
     }
     
     public func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {
