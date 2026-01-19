@@ -1,5 +1,5 @@
 import Foundation
-import WebRTC
+import webrtc_ios
 
 /// Delegate protocol for XaviaCallingService events
 public protocol XaviaCallingDelegate: AnyObject {

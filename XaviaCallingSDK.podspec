@@ -21,7 +21,7 @@ Pod::Spec.new do |spec|
   
   spec.frameworks   = 'Foundation', 'AVFoundation', 'CoreVideo', 'VideoToolbox', 'CoreMedia', 'CoreTelephony', 'GLKit'
   
-  spec.dependency 'GoogleWebRTC', '~> 1.1'
+  spec.dependency 'webrtc-ios', '~> 114.0'
   spec.dependency 'Socket.IO-Client-Swift', '~> 16.0'
   
   spec.requires_arc = true
