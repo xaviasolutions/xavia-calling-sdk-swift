@@ -17,7 +17,7 @@ Pod::Spec.new do |s|
   s.source_files     = 'XaviaCalling/**/*.{swift}'
   s.requires_arc     = true
 
-  s.dependency 'WebRTC', '~> 141.0'               # ← from https://github.com/stasel/WebRTC
+  s.dependency 'WebRTC-lib', '~> 141.0'               # ← from https://github.com/stasel/WebRTC
   s.dependency 'Socket.IO-Client-Swift', '~> 16.1'
 
   s.frameworks       = 'AVFoundation', 'Foundation', 'UIKit'
