@@ -8,7 +8,7 @@ import AVFoundation
 public final class WebRTCService: NSObject {
 
     public static let shared = WebRTCService()
-    private override init() {
+    override public init() {
         super.init()
         RTCInitializeSSL()
     }
@@ -239,8 +239,8 @@ public final class WebRTCService: NSObject {
         }
 
         if isInitiator {
-            pc.offer(for: RTCMediaConstraints()) { [weak self] sdp, _ in
-                guard let self, let sdp else { return }
+            pc.offer(for: RTCMediaConstraints()) { [weak self, weak pc] sdp, _ in
+                guard let self, let pc, let sdp else { return }
                 pc.setLocalDescription(sdp)
                 self.socket?.emit("signal", [
                     "callId": self.currentCallId!,
@@ -270,8 +270,8 @@ public final class WebRTCService: NSObject {
                   let sdpString = signalData["sdp"] as? String else { return }
             let sdp = RTCSessionDescription(type: .offer, sdp: sdpString)
             pc.setRemoteDescription(sdp)
-            pc.answer(for: RTCMediaConstraints()) { [weak self] answer, _ in
-                guard let self, let answer else { return }
+            pc.answer(for: RTCMediaConstraints()) { [weak self, weak pc] answer, _ in
+                guard let self, let pc, let answer else { return }
                 pc.setLocalDescription(answer)
                 self.socket?.emit("signal", [
                     "callId": self.currentCallId!,
@@ -314,7 +314,7 @@ public final class WebRTCService: NSObject {
     }
 
     public func leaveCall() {
-        guard let callId else { return }
+        guard let callId = currentCallId else { return }
         socket?.emit("leave-call", ["callId": callId, "reason": "left"])
         peerConnections.values.forEach { $0.close() }
         peerConnections.removeAll()
@@ -355,11 +355,10 @@ extension WebRTCService: RTCPeerConnectionDelegate {
         ])
     }
 
-    // Unused required delegate methods
-    public func peerConnection(_ peerConnection: RTCPeerConnection, didChange stateChanged: RTCSignalingState) {}
+    public func peerConnection(_ peerConnection: RTCPeerConnection, didChange signalingState: RTCSignalingState) {}
     public func peerConnection(_ peerConnection: RTCPeerConnection, didRemove stream: RTCMediaStream) {}
-    public func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {}
-    public func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceGatheringState) {}
-    public func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCPeerConnectionState) {}
+    public func peerConnection(_ peerConnection: RTCPeerConnection, didChange iceConnectionState: RTCIceConnectionState) {}
+    public func peerConnection(_ peerConnection: RTCPeerConnection, didChange iceGatheringState: RTCIceGatheringState) {}
+    public func peerConnection(_ peerConnection: RTCPeerConnection, didChange connectionState: RTCPeerConnectionState) {}
     public func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {}
 }
