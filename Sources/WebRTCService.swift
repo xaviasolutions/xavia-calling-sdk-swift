@@ -232,12 +232,14 @@ public final class WebRTCService {
         let pc = factory.peerConnection(with: config, constraints: RTCMediaConstraints(), delegate: self)
         peerConnections[participantId] = pc
 
-        localStream?.videoTracks.forEach { pc.add($0, streamIds: ["local"]) }
-        localStream?.audioTracks.forEach { pc.add($0, streamIds: ["local"]) }
+        if let localStream = localStream {
+            localStream.videoTracks.forEach { pc.add($0, streamIds: ["local"]) }
+            localStream.audioTracks.forEach { pc.add($0, streamIds: ["local"]) }
+        }
 
         if isInitiator {
-            pc.offer(for: RTCMediaConstraints()) { sdp, _ in
-                guard let sdp else { return }
+            pc.offer(for: RTCMediaConstraints()) { [weak self] sdp, _ in
+                guard let self, let sdp else { return }
                 pc.setLocalDescription(sdp)
                 self.socket?.emit("signal", [
                     "callId": self.currentCallId!,
@@ -254,28 +256,41 @@ public final class WebRTCService {
               let type = data["type"] as? String
         else { return }
 
-        let pc = peerConnections[fromId] ?? { createPeerConnection(participantId: fromId, isInitiator: false); return peerConnections[fromId]! }()
+        var pc = peerConnections[fromId]
+        if pc == nil {
+            createPeerConnection(participantId: fromId, isInitiator: false)
+            pc = peerConnections[fromId]
+        }
+        
+        guard let pc = pc else { return }
 
         if type == "offer" {
-            let sdp = RTCSessionDescription(type: .offer, sdp: (data["signal"] as! [String: Any])["sdp"] as! String)
+            guard let signalData = data["signal"] as? [String: Any],
+                  let sdpString = signalData["sdp"] as? String else { return }
+            let sdp = RTCSessionDescription(type: .offer, sdp: sdpString)
             pc.setRemoteDescription(sdp)
-            pc.answer(for: RTCMediaConstraints()) { answer, _ in
-                pc.setLocalDescription(answer!)
+            pc.answer(for: RTCMediaConstraints()) { [weak self] answer, _ in
+                guard let self, let answer else { return }
+                pc.setLocalDescription(answer)
                 self.socket?.emit("signal", [
                     "callId": self.currentCallId!,
                     "targetId": fromId,
-                    "signal": ["sdp": answer!.sdp, "type": answer!.type.rawValue],
+                    "signal": ["sdp": answer.sdp, "type": answer.type.rawValue],
                     "type": "answer"
                 ])
             }
         } else if type == "answer" {
-            let sdp = RTCSessionDescription(type: .answer, sdp: (data["signal"] as! [String: Any])["sdp"] as! String)
+            guard let signalData = data["signal"] as? [String: Any],
+                  let sdpString = signalData["sdp"] as? String else { return }
+            let sdp = RTCSessionDescription(type: .answer, sdp: sdpString)
             pc.setRemoteDescription(sdp)
         } else if type == "ice-candidate" {
-            let s = data["signal"] as! [String: Any]
-            let c = RTCIceCandidate(sdp: s["candidate"] as! String,
-                                    sdpMLineIndex: s["sdpMLineIndex"] as! Int32,
-                                    sdpMid: s["sdpMid"] as? String)
+            guard let signalData = data["signal"] as? [String: Any],
+                  let candidate = signalData["candidate"] as? String,
+                  let sdpMLineIndex = signalData["sdpMLineIndex"] as? Int32 else { return }
+            let c = RTCIceCandidate(sdp: candidate,
+                                    sdpMLineIndex: sdpMLineIndex,
+                                    sdpMid: signalData["sdpMid"] as? String)
             pc.add(c)
         }
     }
