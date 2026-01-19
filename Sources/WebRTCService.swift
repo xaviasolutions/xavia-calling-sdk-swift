@@ -679,9 +679,9 @@ public final class WebRTCService: NSObject {
 
 extension WebRTCService: RTCPeerConnectionDelegate {
     
-    // MARK: - Media Stream Events (CRITICAL FIX)
+    // MARK: - Media Stream Events
     
-    // Use the correct modern delegate method
+    // Modern method - this is the CORRECT one for iOS 13+
     public func peerConnection(_ peerConnection: RTCPeerConnection, didAdd rtpReceiver: RTCRtpReceiver, streams: [RTCMediaStream]) {
         guard let participantId = peerConnections.first(where: { $0.value === peerConnection })?.key else {
             print("⚠️ Could not find participantId for peer connection")
@@ -703,6 +703,25 @@ extension WebRTCService: RTCPeerConnectionDelegate {
         }
     }
     
+    // Legacy method - keep for compatibility with older iOS versions
+    public func peerConnection(_ peerConnection: RTCPeerConnection, didAdd stream: RTCMediaStream) {
+        guard let participantId = peerConnections.first(where: { $0.value === peerConnection })?.key else {
+            print("⚠️ Could not find participantId for peer connection (legacy)")
+            return
+        }
+        
+        print("📥 [Legacy] Received stream from \(participantId)")
+        print("📥 [Legacy] Stream details - audio: \(stream.audioTracks.count), video: \(stream.videoTracks.count)")
+        
+        remoteStreams[participantId] = stream
+        
+        DispatchQueue.main.async { [weak self] in
+            print("📢 [Legacy] Calling onRemoteStream delegate for \(participantId)")
+            self?.delegate?.onRemoteStream(participantId: participantId, stream: stream)
+        }
+    }
+    
+    // This is for REMOVAL of streams
     public func peerConnection(_ peerConnection: RTCPeerConnection, didRemove stream: RTCMediaStream) {
         guard let participantId = peerConnections.first(where: { $0.value === peerConnection })?.key else {
             return
