@@ -226,28 +226,60 @@ public final class WebRTCService: NSObject {
 
     private func createPeerConnection(participantId: String, isInitiator: Bool) {
         let config = RTCConfiguration()
-        config.iceServers = iceServers?.compactMap {
-            RTCIceServer(urlStrings: $0["urls"] as? [String] ?? [])
+        config.iceServers = iceServers?.compactMap { serverDict -> RTCIceServer? in
+            guard let urls = serverDict["urls"] as? [String] else { return nil }
+
+            if let username = serverDict["username"] as? String,
+               let credential = serverDict["credential"] as? String {
+                return RTCIceServer(
+                    urlStrings: urls,
+                    username: username,
+                    credential: credential
+                )
+            }
+
+            return RTCIceServer(urlStrings: urls)
         } ?? [RTCIceServer(urlStrings: ["stun:stun.l.google.com:19302"])]
 
-        let pc = factory.peerConnection(with: config, constraints: RTCMediaConstraints(), delegate: self)
+        let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
+
+        guard let pc = factory.peerConnection(with: config, constraints: constraints, delegate: self) else {
+            delegate?.onError("Failed to create peer connection")
+            return
+        }
+
         peerConnections[participantId] = pc
 
         if let localStream = localStream {
-            localStream.videoTracks.forEach { pc.add($0, streamIds: ["local"]) }
-            localStream.audioTracks.forEach { pc.add($0, streamIds: ["local"]) }
+            localStream.videoTracks.forEach { track in
+                pc.add(track, streamIds: ["local"])
+            }
+            localStream.audioTracks.forEach { track in
+                pc.add(track, streamIds: ["local"])
+            }
         }
 
         if isInitiator {
-            pc.offer(for: RTCMediaConstraints()) { [weak self, weak pc] sdp, _ in
-                guard let self, let pc, let sdp else { return }
-                pc.setLocalDescription(sdp)
-                self.socket?.emit("signal", [
-                    "callId": self.currentCallId!,
-                    "targetId": participantId,
-                    "signal": ["sdp": sdp.sdp, "type": sdp.type.rawValue],
-                    "type": "offer"
-                ])
+            let offerConstraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
+            pc.offer(for: offerConstraints) { [weak self, weak pc] sdp, error in
+                guard let self, let pc, let sdp, error == nil else {
+                    self?.delegate?.onError("Failed to create offer: \(error?.localizedDescription ?? "unknown")")
+                    return
+                }
+
+                pc.setLocalDescription(sdp) { error in
+                    if let error {
+                        self.delegate?.onError("Failed to set local description: \(error.localizedDescription)")
+                        return
+                    }
+
+                    self.socket?.emit("signal", [
+                        "callId": self.currentCallId ?? "",
+                        "targetId": participantId,
+                        "signal": ["sdp": sdp.sdp, "type": sdp.type.rawValue],
+                        "type": "offer"
+                    ])
+                }
             }
         }
     }
@@ -262,29 +294,53 @@ public final class WebRTCService: NSObject {
             createPeerConnection(participantId: fromId, isInitiator: false)
             pc = peerConnections[fromId]
         }
-        
-        guard let pc = pc else { return }
+
+        guard let pc else { return }
 
         if type == "offer" {
             guard let signalData = data["signal"] as? [String: Any],
                   let sdpString = signalData["sdp"] as? String else { return }
             let sdp = RTCSessionDescription(type: .offer, sdp: sdpString)
-            pc.setRemoteDescription(sdp)
-            pc.answer(for: RTCMediaConstraints()) { [weak self, weak pc] answer, _ in
-                guard let self, let pc, let answer else { return }
-                pc.setLocalDescription(answer)
-                self.socket?.emit("signal", [
-                    "callId": self.currentCallId!,
-                    "targetId": fromId,
-                    "signal": ["sdp": answer.sdp, "type": answer.type.rawValue],
-                    "type": "answer"
-                ])
+
+            pc.setRemoteDescription(sdp) { [weak self] error in
+                guard let self else { return }
+                if let error {
+                    self.delegate?.onError("Failed to set remote description: \(error.localizedDescription)")
+                    return
+                }
+
+                let answerConstraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
+                pc.answer(for: answerConstraints) { [weak self, weak pc] answer, error in
+                    guard let self, let pc, let answer, error == nil else {
+                        self?.delegate?.onError("Failed to create answer: \(error?.localizedDescription ?? "unknown")")
+                        return
+                    }
+
+                    pc.setLocalDescription(answer) { error in
+                        if let error {
+                            self.delegate?.onError("Failed to set local description: \(error.localizedDescription)")
+                            return
+                        }
+
+                        self.socket?.emit("signal", [
+                            "callId": self.currentCallId ?? "",
+                            "targetId": fromId,
+                            "signal": ["sdp": answer.sdp, "type": answer.type.rawValue],
+                            "type": "answer"
+                        ])
+                    }
+                }
             }
         } else if type == "answer" {
             guard let signalData = data["signal"] as? [String: Any],
                   let sdpString = signalData["sdp"] as? String else { return }
             let sdp = RTCSessionDescription(type: .answer, sdp: sdpString)
-            pc.setRemoteDescription(sdp)
+
+            pc.setRemoteDescription(sdp) { [weak self] error in
+                if let error {
+                    self?.delegate?.onError("Failed to set remote description: \(error.localizedDescription)")
+                }
+            }
         } else if type == "ice-candidate" {
             guard let signalData = data["signal"] as? [String: Any],
                   let candidate = signalData["candidate"] as? String,
@@ -292,7 +348,12 @@ public final class WebRTCService: NSObject {
             let c = RTCIceCandidate(sdp: candidate,
                                     sdpMLineIndex: sdpMLineIndex,
                                     sdpMid: signalData["sdpMid"] as? String)
-            pc.add(c)
+
+            pc.add(c) { [weak self] error in
+                if let error {
+                    self?.delegate?.onError("Failed to add ICE candidate: \(error.localizedDescription)")
+                }
+            }
         }
     }
 
@@ -346,10 +407,8 @@ extension WebRTCService: RTCPeerConnectionDelegate {
         delegate?.onRemoteStream(participantId: participantId, stream: stream)
     }
     
-    // Note: didRemove stream is rarely used now, but still required in some versions
     public func peerConnection(_ peerConnection: RTCPeerConnection, didRemove stream: RTCMediaStream) {
-        // Usually safe to leave empty
-        // You can remove from remoteStreams if you want strict cleanup
+        // Empty implementation is fine
     }
     
     // MARK: - ICE Candidate Events
@@ -372,23 +431,33 @@ extension WebRTCService: RTCPeerConnectionDelegate {
     }
     
     public func peerConnection(_ peerConnection: RTCPeerConnection, didRemove candidates: [RTCIceCandidate]) {
-        // Almost never used in practice — just implement empty
+        // Empty implementation is fine
     }
     
-    // MARK: - State Change Events (most important ones)
+    // MARK: - State Change Events
     
     public func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCPeerConnectionState) {
         guard let participantId = peerConnections.first(where: { $0.value === peerConnection })?.key else { return }
         
-        print("PeerConnection [\(participantId)] → state: \(newState.description)")
+        let stateStr: String
+        switch newState {
+        case .new: stateStr = "new"
+        case .connecting: stateStr = "connecting"
+        case .connected: stateStr = "connected"
+        case .disconnected: stateStr = "disconnected"
+        case .failed: stateStr = "failed"
+        case .closed: stateStr = "closed"
+        @unknown default: stateStr = "unknown"
+        }
         
-        // You can add useful logic here later:
+        print("PeerConnection [\(participantId)] → state: \(stateStr)")
+        
         switch newState {
         case .failed, .disconnected:
-            // Maybe notify UI / try to reconnect / show "Reconnecting..."
+            // Optional: Add reconnection logic or notify delegate
             break
         case .connected:
-            // Good! Connection is working
+            // Optional: Notify success
             break
         default:
             break
@@ -398,32 +467,42 @@ extension WebRTCService: RTCPeerConnectionDelegate {
     public func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {
         guard let participantId = peerConnections.first(where: { $0.value === peerConnection })?.key else { return }
         
-        print("ICE Connection [\(participantId)] → \(newState.description)")
+        let stateStr: String
+        switch newState {
+        case .new: stateStr = "new"
+        case .checking: stateStr = "checking"
+        case .connected: stateStr = "connected"
+        case .completed: stateStr = "completed"
+        case .failed: stateStr = "failed"
+        case .disconnected: stateStr = "disconnected"
+        case .closed: stateStr = "closed"
+        @unknown default: stateStr = "unknown"
+        }
         
-        // Very useful states to watch:
+        print("ICE Connection [\(participantId)] → \(stateStr)")
+        
         if newState == .failed || newState == .disconnected {
-            // Connection quality is bad — you may want to restart ICE later
+            // Optional: Restart ICE or notify delegate
         }
     }
     
     public func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceGatheringState) {
-        // print("ICE Gathering → \(newState)")  // mostly for debugging
+        // Optional: print("ICE Gathering → \(newState)")
     }
     
     public func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCSignalingState) {
-        // print("Signaling → \(newState)")     // mostly for debugging
+        // Optional: print("Signaling → \(newState)")
     }
     
     // MARK: - Negotiation & DataChannel
     
     public func peerConnectionShouldNegotiate(_ peerConnection: RTCPeerConnection) {
-        // Usually empty in simple apps using manual createOffer/createAnswer
-        // Only useful if you use automatic negotiation (trickle + negotiationneeded)
-        print("negotiationneeded event received")
+        print("Negotiation needed")
+        // Optional: Trigger offer if needed
     }
     
     public func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {
         print("DataChannel opened: \(dataChannel.label ?? "unnamed")")
-        // If you plan to use data channels later, handle here
+        // Optional: Handle data channel
     }
 }
