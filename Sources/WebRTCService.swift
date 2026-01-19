@@ -5,10 +5,11 @@ import AVFoundation
 
 // MARK: - Service
 
-public final class WebRTCService {
+public final class WebRTCService: NSObject {
 
     public static let shared = WebRTCService()
-    private init() {
+    private override init() {
+        super.init()
         RTCInitializeSSL()
     }
 
