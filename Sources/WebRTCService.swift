@@ -2,6 +2,7 @@ import Foundation
 import WebRTC
 import SocketIO
 import AVFoundation
+import CoreMedia
 
 // MARK: - Service
 
@@ -333,7 +334,7 @@ public final class WebRTCService: NSObject {
                     var selectedDimension: CMVideoDimensions = CMVideoDimensions(width: 0, height: 0)
 
                     for f in formats {
-                        let desc = CMFormatDescriptionGetDimensions(f.formatDescription)
+                        let desc = CMVideoFormatDescriptionGetDimensions(f.formatDescription)
                         if desc.width == targetWidth && desc.height == targetHeight {
                             selectedFormat = f
                             selectedDimension = desc
