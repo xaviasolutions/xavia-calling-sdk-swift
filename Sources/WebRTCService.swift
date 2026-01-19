@@ -132,7 +132,7 @@ public final class WebRTCService: NSObject {
                   let pid = payload["participantId"] as? String
             else { return }
 
-            if pid != self.currentParticipantId && self.peerConnections[pid] == nil {
+            if pid != self.currentParticipantId {
                 self.createPeerConnection(participantId: pid, isInitiator: false)
             }
             self.delegate?.onParticipantJoined(payload)
@@ -614,6 +614,18 @@ extension WebRTCService: RTCPeerConnectionDelegate {
         
         remoteStreams[participantId] = stream
         delegate?.onRemoteStream(participantId: participantId, stream: stream)
+    }
+    
+    public func peerConnection(_ peerConnection: RTCPeerConnection, didAdd rtpReceiver: RTCRtpReceiver, streams: [RTCMediaStream]) {
+        guard let participantId = peerConnections.first(where: { $0.value === peerConnection })?.key else {
+            return
+        }
+
+        // Use the first associated stream (since we use streamIds, there should be one)
+        if remoteStreams[participantId] == nil, let stream = streams.first {
+            remoteStreams[participantId] = stream
+            delegate?.onRemoteStream(participantId: participantId, stream: stream)
+        }
     }
     
     public func peerConnection(_ peerConnection: RTCPeerConnection, didRemove stream: RTCMediaStream) {
