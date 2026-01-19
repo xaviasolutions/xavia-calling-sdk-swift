@@ -132,7 +132,7 @@ public final class WebRTCService: NSObject {
                   let pid = payload["participantId"] as? String
             else { return }
 
-            if pid != self.currentParticipantId {
+            if pid != self.currentParticipantId && self.peerConnections[pid] == nil {
                 self.createPeerConnection(participantId: pid, isInitiator: false)
             }
             self.delegate?.onParticipantJoined(payload)
