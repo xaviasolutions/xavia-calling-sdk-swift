@@ -400,6 +400,20 @@ public final class WebRTCService: NSObject {
         }
     }
 
+    public func toggleAudio(enabled: Bool) {
+        localStream?.audioTracks.forEach { track in
+            track.isEnabled = enabled
+        }
+        print("🎤 Audio:", enabled ? "enabled" : "disabled")
+    }
+
+    public func toggleVideo(enabled: Bool) {
+        localStream?.videoTracks.forEach { track in
+            track.isEnabled = enabled
+        }
+        print("📹 Video:", enabled ? "enabled" : "disabled")
+    }
+
     public func leaveCall() {
         guard let callId = currentCallId else { return }
         socket?.emit("leave-call", ["callId": callId, "reason": "left"])
@@ -523,8 +537,34 @@ extension WebRTCService: RTCPeerConnectionDelegate {
     // MARK: - Negotiation & DataChannel
     
     public func peerConnectionShouldNegotiate(_ peerConnection: RTCPeerConnection) {
-        print("Negotiation needed")
-        // Optional: Trigger offer if needed
+        guard let participantId = peerConnections.first(where: { $0.value === peerConnection })?.key else {
+            return
+        }
+        
+        print("📡 Negotiation needed with \(participantId)")
+        
+        // Create and send offer for renegotiation
+        let offerConstraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
+        peerConnection.offer(for: offerConstraints) { [weak self, weak peerConnection] sdp, error in
+            guard let self, let peerConnection, let sdp, error == nil else {
+                self?.delegate?.onError("Failed to create renegotiation offer: \(error?.localizedDescription ?? "unknown")")
+                return
+            }
+            
+            peerConnection.setLocalDescription(sdp) { error in
+                if let error {
+                    self.delegate?.onError("Failed to set local description for renegotiation: \(error.localizedDescription)")
+                    return
+                }
+                
+                self.socket?.emit("signal", [
+                    "callId": self.currentCallId ?? "",
+                    "targetId": participantId,
+                    "signal": ["sdp": sdp.sdp, "type": sdp.type.rawValue],
+                    "type": "offer"
+                ])
+            }
+        }
     }
     
     public func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {
