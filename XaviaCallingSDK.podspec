@@ -11,7 +11,7 @@ Pod::Spec.new do |s|
   s.ios.deployment_target = '12.0'
   s.swift_version = '5.7'
 
-  s.source_files = 'Sources/XaviaCallingSDK/**/*.{swift}'
+  s.source_files = 'Sources/**/*.{swift}'
 
   # ✅ AUTO INSTALL DEPENDENCIES
   s.dependency 'Socket.IO-Client-Swift', '~> 16.0'
