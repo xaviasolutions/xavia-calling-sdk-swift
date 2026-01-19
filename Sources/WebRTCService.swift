@@ -334,31 +334,96 @@ public final class WebRTCService: NSObject {
 // MARK: - RTCPeerConnectionDelegate
 
 extension WebRTCService: RTCPeerConnectionDelegate {
+    
+    // MARK: - Media Stream Events
+    
     public func peerConnection(_ peerConnection: RTCPeerConnection, didAdd stream: RTCMediaStream) {
-        let id = peerConnections.first { $0.value == peerConnection }?.key ?? ""
-        remoteStreams[id] = stream
-        delegate?.onRemoteStream(participantId: id, stream: stream)
+        guard let participantId = peerConnections.first(where: { $0.value === peerConnection })?.key else {
+            return
+        }
+        
+        remoteStreams[participantId] = stream
+        delegate?.onRemoteStream(participantId: participantId, stream: stream)
     }
-
-    public func peerConnection(_ peerConnection: RTCPeerConnection,
-                               didGenerate candidate: RTCIceCandidate) {
-        guard let id = peerConnections.first(where: { $0.value == peerConnection })?.key else { return }
+    
+    // Note: didRemove stream is rarely used now, but still required in some versions
+    public func peerConnection(_ peerConnection: RTCPeerConnection, didRemove stream: RTCMediaStream) {
+        // Usually safe to leave empty
+        // You can remove from remoteStreams if you want strict cleanup
+    }
+    
+    // MARK: - ICE Candidate Events
+    
+    public func peerConnection(_ peerConnection: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {
+        guard let participantId = peerConnections.first(where: { $0.value === peerConnection })?.key else {
+            return
+        }
+        
         socket?.emit("signal", [
-            "callId": currentCallId!,
-            "targetId": id,
+            "callId": currentCallId ?? "",
+            "targetId": participantId,
+            "type": "ice-candidate",
             "signal": [
                 "candidate": candidate.sdp,
                 "sdpMid": candidate.sdpMid ?? "",
                 "sdpMLineIndex": candidate.sdpMLineIndex
-            ],
-            "type": "ice-candidate"
+            ]
         ])
     }
-
-    public func peerConnection(_ peerConnection: RTCPeerConnection, didChange signalingState: RTCSignalingState) {}
-    public func peerConnection(_ peerConnection: RTCPeerConnection, didRemove stream: RTCMediaStream) {}
-    public func peerConnection(_ peerConnection: RTCPeerConnection, didChange iceConnectionState: RTCIceConnectionState) {}
-    public func peerConnection(_ peerConnection: RTCPeerConnection, didChange iceGatheringState: RTCIceGatheringState) {}
-    public func peerConnection(_ peerConnection: RTCPeerConnection, didChange connectionState: RTCPeerConnectionState) {}
-    public func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {}
+    
+    public func peerConnection(_ peerConnection: RTCPeerConnection, didRemove candidates: [RTCIceCandidate]) {
+        // Almost never used in practice — just implement empty
+    }
+    
+    // MARK: - State Change Events (most important ones)
+    
+    public func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCPeerConnectionState) {
+        guard let participantId = peerConnections.first(where: { $0.value === peerConnection })?.key else { return }
+        
+        print("PeerConnection [\(participantId)] → state: \(newState.description)")
+        
+        // You can add useful logic here later:
+        switch newState {
+        case .failed, .disconnected:
+            // Maybe notify UI / try to reconnect / show "Reconnecting..."
+            break
+        case .connected:
+            // Good! Connection is working
+            break
+        default:
+            break
+        }
+    }
+    
+    public func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {
+        guard let participantId = peerConnections.first(where: { $0.value === peerConnection })?.key else { return }
+        
+        print("ICE Connection [\(participantId)] → \(newState.description)")
+        
+        // Very useful states to watch:
+        if newState == .failed || newState == .disconnected {
+            // Connection quality is bad — you may want to restart ICE later
+        }
+    }
+    
+    public func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceGatheringState) {
+        // print("ICE Gathering → \(newState)")  // mostly for debugging
+    }
+    
+    public func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCSignalingState) {
+        // print("Signaling → \(newState)")     // mostly for debugging
+    }
+    
+    // MARK: - Negotiation & DataChannel
+    
+    public func peerConnectionShouldNegotiate(_ peerConnection: RTCPeerConnection) {
+        // Usually empty in simple apps using manual createOffer/createAnswer
+        // Only useful if you use automatic negotiation (trickle + negotiationneeded)
+        print("negotiationneeded event received")
+    }
+    
+    public func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {
+        print("DataChannel opened: \(dataChannel.label ?? "unnamed")")
+        // If you plan to use data channels later, handle here
+    }
 }
