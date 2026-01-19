@@ -1,5 +1,5 @@
 import Foundation
-import webrtc_ios
+import WebRTC
 import SocketIO
 
 /// XaviaCallingService - Complete iOS native WebRTC implementation
@@ -35,9 +35,6 @@ public class XaviaCallingService: NSObject {
     
     // MARK: - Initialization
     private override init() {
-        // Initialize WebRTC factory with default video encoder/decoder factories
-        RTCInitializeSSL()
-        
         let videoEncoderFactory = RTCDefaultVideoEncoderFactory()
         let videoDecoderFactory = RTCDefaultVideoDecoderFactory()
         self.peerConnectionFactory = RTCPeerConnectionFactory(
