@@ -34,13 +34,20 @@ public final class WebRTCService: NSObject {
 
     // MARK: - Connect
 
-    public func connect(serverUrl: String, userId: String, userName: String) {
+    public func connect(serverUrl: String, userId: String, userName: String, 
+                       completion: @escaping (Result<Void, Error>) -> Void) {
         guard !userName.trimmingCharacters(in: .whitespaces).isEmpty else {
+            let error = NSError(domain: "WebRTCService", code: -1,
+                              userInfo: [NSLocalizedDescriptionKey: "Username is required"])
             delegate?.onError("Username is required")
+            completion(.failure(error))
             return
         }
 
-        if socket?.status == .connected, self.userId == userId { return }
+        if socket?.status == .connected, self.userId == userId {
+            completion(.success(()))
+            return
+        }
 
         disconnect()
 
@@ -61,6 +68,19 @@ public final class WebRTCService: NSObject {
 
         socket = manager?.defaultSocket
         setupSocketListeners()
+
+        // Wait for connection before calling completion
+        socket?.once(clientEvent: .connect) { [weak self] _, _ in
+            guard let self else { return }
+            self.socket?.emit("register-user", ["userId": self.userId!, "userName": self.userName!])
+            completion(.success(()))
+        }
+
+        socket?.once(clientEvent: .error) { _, _ in
+            let error = NSError(domain: "WebRTCService", code: -1,
+                              userInfo: [NSLocalizedDescriptionKey: "Connection failed"])
+            completion(.failure(error))
+        }
 
         socket?.connect()
     }
@@ -127,6 +147,7 @@ public final class WebRTCService: NSObject {
 
             self.iceServers = payload["iceServers"] as? [[String: Any]]
 
+            // Create peer connections for all existing participants
             for p in participants {
                 if let id = p["id"] as? String {
                     self.createPeerConnection(participantId: id, isInitiator: true)
@@ -194,33 +215,48 @@ public final class WebRTCService: NSObject {
             self.currentParticipantId = json?["participantId"] as? String
             self.iceServers = (json?["config"] as? [String: Any])?["iceServers"] as? [[String: Any]]
 
-            self.getLocalMedia()
-
-            self.socket?.emit("join-call", [
-                "callId": self.currentCallId!,
-                "participantId": self.currentParticipantId!,
-                "userName": userName
-            ])
-
-            completion(.success(json!))
+            // Get local media before joining
+            self.getLocalMedia { result in
+                switch result {
+                case .success:
+                    // Now emit join-call after media is ready
+                    self.socket?.emit("join-call", [
+                        "callId": self.currentCallId!,
+                        "participantId": self.currentParticipantId!,
+                        "userName": userName
+                    ])
+                    completion(.success(json!))
+                case .failure(let error):
+                    completion(.failure(error))
+                }
+            }
         }.resume()
     }
 
     // MARK: - Media
 
-    public func getLocalMedia() {
-        let stream = factory.mediaStream(withStreamId: "local")
+    public func getLocalMedia(constraints: [String: Any] = [:],
+                            completion: @escaping (Result<RTCMediaStream, Error>) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            
+            let stream = self.factory.mediaStream(withStreamId: "local")
 
-        let audioTrack = factory.audioTrack(withTrackId: "audio0")
-        stream.addAudioTrack(audioTrack)
+            let audioTrack = self.factory.audioTrack(withTrackId: "audio0")
+            stream.addAudioTrack(audioTrack)
 
-        let videoSource = factory.videoSource()
-        let capturer = RTCCameraVideoCapturer(delegate: videoSource)
-        let videoTrack = factory.videoTrack(with: videoSource, trackId: "video0")
-        stream.addVideoTrack(videoTrack)
+            let videoSource = self.factory.videoSource()
+            let capturer = RTCCameraVideoCapturer(delegate: videoSource)
+            let videoTrack = self.factory.videoTrack(with: videoSource, trackId: "video0")
+            stream.addVideoTrack(videoTrack)
 
-        localStream = stream
-        delegate?.onLocalStream(stream)
+            self.localStream = stream
+            
+            DispatchQueue.main.async {
+                self.delegate?.onLocalStream(stream)
+                completion(.success(stream))
+            }
+        }
     }
 
     // MARK: - Peer Connection
