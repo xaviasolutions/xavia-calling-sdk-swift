@@ -1,0 +1,6 @@
+framework module XaviaCallingSDK {
+  umbrella header "XaviaCallingSDK.h"
+  
+  export *
+  module * { export * }
+}
