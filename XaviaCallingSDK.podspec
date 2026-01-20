@@ -16,7 +16,9 @@ Pod::Spec.new do |s|
   
   s.source_files = 'Sources/XaviaCallingSDK/**/*.{swift,h,m}'
   
-  s.dependency 'WebRTC-SDK', '124.0.0'
+  # Use WebRTC binary framework instead of WebRTC-SDK pod
+  s.vendored_frameworks = 'Frameworks/WebRTC.xcframework'
+  
   s.dependency 'Starscream', '4.0.8'
   
   s.pod_target_xcconfig = {
