@@ -1,30 +1,19 @@
-# Cocoapods
-Pods/
-Podfile.lock
-*.podspec.lock
-
 # Xcode
 build/
-DerivedData/
-*.xcodeproj/xcuserdata/
-*.xcworkspace/xcuserdata/
-*.xcworkspace/xcshareddata/
-xcshareddata/
 *.pbxuser
 *.mode1v3
 *.mode2v3
 *.perspectivev3
+*.xcworkspace
 xcuserdata/
-*.xcworkspace/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.resolved
 
-# Xcode private settings
-*.private.xcworkspace/
-
-# macOS
-.DS_Store
-.AppleDouble
-.LSOverride
-._*
+# Swift Package Manager
+.build/
+.swiftpm/
+*.xcframework
 
 # IDE
 .vscode/
@@ -32,42 +21,24 @@ xcuserdata/
 *.swp
 *.swo
 *~
-.project
-.classpath
-.c9/
-*.launch
-.settings/
-*.sublime-workspace
+.DS_Store
 
-# Testing
-.coverage
-coverage/
-*.lcov
-
-# Dependencies
-.env
-.env.local
-node_modules/
-
-# Build artifacts
-*.o
-*.a
-*.so
-*.dylib
-*.dll
-*.exe
-
-# Swift Package Manager
-.swiftpm/
-Package.resolved
-.build/
+# CocoaPods
+Pods/
+Podfile.lock
 
 # Carthage
-Carthage/Build/
+Carthage/
 
-# Generated files
-*.generated.swift
+# fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots
+fastlane/test_output
 
-# OS
-Thumbs.db
-ehthumbs.db
+# Misc
+.env
+.env.local
+*.log
+dist/
+node_modules/

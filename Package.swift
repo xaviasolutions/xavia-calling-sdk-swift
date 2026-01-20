@@ -1,4 +1,4 @@
-// swift-tools-version:5.7
+// swift-tools-version:5.9
 import PackageDescription
 
 let package = Package(
@@ -9,26 +9,27 @@ let package = Package(
     products: [
         .library(
             name: "XaviaCallingSDK",
-            targets: ["XaviaCallingSDK"]),
+            targets: ["XaviaCallingSDK"]
+        )
     ],
     dependencies: [
-        .package(url: "https://github.com/stasel/WebRTC.git", .exact("124.0.0"))
+        .package(
+            url: "https://github.com/webrtc-sdk/WebRTC.git",
+            .upToNextMajor(from: "1.0.0")
+        ),
+        .package(
+            url: "https://github.com/socketio/socket.io-client-swift.git",
+            .upToNextMajor(from: "16.0.0")
+        )
     ],
     targets: [
         .target(
             name: "XaviaCallingSDK",
             dependencies: [
-                .product(name: "WebRTC", package: "WebRTC")
+                .product(name: "WebRTC", package: "WebRTC"),
+                .product(name: "SocketIO", package: "socket.io-client-swift")
             ],
-            path: "Sources/XaviaCallingSDK",
-            exclude: ["Info.plist"],
-            resources: [
-                .copy("PrivacyInfo.xcprivacy")
-            ]),
-        .testTarget(
-            name: "XaviaCallingSDKTests",
-            dependencies: ["XaviaCallingSDK"],
-            path: "Tests/XaviaCallingSDKTests"),
-    ],
-    swiftLanguageVersions: [.v5]
+            path: "Sources"
+        )
+    ]
 )
