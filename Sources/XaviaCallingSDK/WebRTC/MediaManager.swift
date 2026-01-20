@@ -46,20 +46,22 @@ class MediaManager {
         // Request audio permission
         let audioStatus = AVCaptureDevice.authorizationStatus(for: .audio)
         if audioStatus == .notDetermined {
-            _ = await AVCaptureDevice.requestAccess(for: .audio)
-        }
-        
-        guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
+            let granted = await AVCaptureDevice.requestAccess(for: .audio)
+            if !granted {
+                throw WebRTCError.mediaError("Audio permission denied")
+            }
+        } else if audioStatus != .authorized {
             throw WebRTCError.mediaError("Audio permission denied")
         }
         
         // Request video permission if we need video
         let videoStatus = AVCaptureDevice.authorizationStatus(for: .video)
         if videoStatus == .notDetermined {
-            _ = await AVCaptureDevice.requestAccess(for: .video)
-        }
-        
-        guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized else {
+            let granted = await AVCaptureDevice.requestAccess(for: .video)
+            if !granted {
+                throw WebRTCError.mediaError("Video permission denied")
+            }
+        } else if videoStatus != .authorized {
             throw WebRTCError.mediaError("Video permission denied")
         }
     }
@@ -92,8 +94,11 @@ class MediaManager {
         let format = selectBestFormat(for: device, constraints: constraints)
         let fps = selectBestFPS(for: format, constraints: constraints)
         
-        // Start capture
-        capturer.startCapture(with: device, format: format, fps: fps)
+        // Start capture - ✅ try await add kiya
+        try await Task.detached {
+            capturer.startCapture(with: device, format: format, fps: fps)
+        }.value
+        
         self.videoCapturer = capturer
         
         return factory.videoTrack(with: videoSource, trackId: "video_\(UUID().uuidString)")
@@ -116,7 +121,7 @@ class MediaManager {
         let targetWidth = constraints?.width ?? 1280
         let targetHeight = constraints?.height ?? 720
         
-        var bestFormat: AVCaptureDevice.Format?
+        var bestFormat: AVCaptureDevice.Format = formats.last!
         var bestDiff = Int.max
         var bestFps: Double = 0
         
@@ -138,7 +143,7 @@ class MediaManager {
             }
         }
         
-        return bestFormat ?? formats.last!
+        return bestFormat
     }
     
     private func selectBestFPS(for format: AVCaptureDevice.Format, constraints: VideoConstraints?) -> Int {
@@ -167,26 +172,36 @@ class MediaManager {
     
     func toggleVideo(enabled: Bool) {
         localStream?.videoTracks.forEach { $0.isEnabled = enabled }
-        videoCapturer?.stopCapture()
         
-        if enabled, let device = findBestCaptureDevice(),
-           let format = selectBestFormat(for: device, constraints: nil),
-           let fps = localStream?.videoTracks.first?.isEnabled == true ? selectBestFPS(for: format, constraints: nil) : 30 {
-            videoCapturer?.startCapture(with: device, format: format, fps: fps)
+        if !enabled {
+            videoCapturer?.stopCapture()
+        } else if enabled {
+            // Restart capture if was stopped
+            guard let device = findBestCaptureDevice(),
+                  let format = selectBestFormat(for: device, constraints: nil),
+                  let capturer = videoCapturer else {
+                return
+            }
+            
+            let fps = selectBestFPS(for: format, constraints: nil)
+            capturer.startCapture(with: device, format: format, fps: fps)
         }
     }
     
     func switchCamera() {
         guard let capturer = videoCapturer else { return }
         
-        let currentPosition = capturer.device?.position ?? .front
+        // Get current position
+        let currentPosition: AVCaptureDevice.Position = .front  // Default
+        
         let newPosition: AVCaptureDevice.Position = currentPosition == .front ? .back : .front
         
-        guard let device = findCaptureDevice(position: newPosition),
-              let format = selectBestFormat(for: device, constraints: nil),
-              let fps = localStream?.videoTracks.first?.isEnabled == true ? selectBestFPS(for: format, constraints: nil) : 30 else {
+        guard let device = findCaptureDevice(position: newPosition) else {
             return
         }
+        
+        let format = selectBestFormat(for: device, constraints: nil)
+        let fps = selectBestFPS(for: format, constraints: nil)
         
         capturer.stopCapture()
         capturer.startCapture(with: device, format: format, fps: fps)
