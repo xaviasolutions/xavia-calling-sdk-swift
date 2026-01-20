@@ -1,5 +1,5 @@
 import Foundation
-import GoogleWebRTC
+import WebRTC
 
 public struct WebRTCServiceDelegates {
     public var onConnectionChange: ((Bool) -> Void)?

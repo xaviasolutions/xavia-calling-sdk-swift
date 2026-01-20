@@ -1,5 +1,5 @@
 import Foundation
-import GoogleWebRTC
+import WebRTC
 
 // MARK: - Enums
 public enum CallType: String, Codable {
