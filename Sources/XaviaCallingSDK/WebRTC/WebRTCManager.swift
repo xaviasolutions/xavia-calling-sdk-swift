@@ -181,7 +181,11 @@ class WebRTCManager: NSObject, WebRTCManagerProtocol {
         let sdp = RTCSessionDescription(type: type, sdp: sdpString)
         try await peerConnection.setRemoteDescription(sdp)
         
-        let answer = try await peerConnection.answer(for: nil)
+        let answerConstraints = RTCMediaConstraints(
+            mandatoryConstraints: nil,
+            optionalConstraints: nil
+        )
+        let answer = try await peerConnection.answer(for: answerConstraints)
         try await peerConnection.setLocalDescription(answer)
         
         Logger.log("📤 Sending answer to \(data.fromId)")
