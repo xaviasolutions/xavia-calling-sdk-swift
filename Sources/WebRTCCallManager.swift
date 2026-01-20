@@ -2,7 +2,7 @@ import Foundation
 import WebRTC
 
 /// Manages WebRTC peer connections and SDP/ICE negotiation
-public class WebRTCCallManager {
+public class WebRTCCallManager: NSObject {
     
     // MARK: - Properties
     private let peerConnectionFactory: RTCPeerConnectionFactory
@@ -42,14 +42,11 @@ public class WebRTCCallManager {
     public func configureICEServers(_ servers: [ICEServer]) {
         queue.async(flags: .barrier) { [weak self] in
             self?.iceServers = servers.map { config in
-                let iceServer = RTCIceServer(uris: config.urls)
-                if let username = config.username {
-                    iceServer.username = username
-                }
-                if let credential = config.credential {
-                    iceServer.credential = credential
-                }
-                return iceServer
+                RTCIceServer(
+                    urlStrings: config.urls,
+                    username: config.username,
+                    credential: config.credential
+                )
             }
             print("📡 ICE servers configured: \(servers.count)")
         }
@@ -68,10 +65,12 @@ public class WebRTCCallManager {
         isInitiator: Bool,
         localStream: RTCMediaStream?
     ) async throws -> RTCPeerConnection {
-        return try await queue.async(flags: .barrier) { [weak self] in
-            guard let self = self else {
-                throw WebRTCError.deallocated
-            }
+        return try await withCheckedThrowingContinuation { continuation in
+            queue.async(flags: .barrier) { [weak self] in
+                guard let self = self else {
+                    continuation.resume(throwing: WebRTCError.deallocated)
+                    return
+                }
             
             let constraints = RTCMediaConstraints(
                 mandatoryConstraints: nil,
@@ -80,7 +79,7 @@ public class WebRTCCallManager {
             
             let rtcConfig = RTCConfiguration()
             rtcConfig.iceServers = self.iceServers.isEmpty ? [
-                RTCIceServer(uris: ["stun:stun.l.google.com:19302"])
+                RTCIceServer(urlStrings: ["stun:stun.l.google.com:19302"])
             ] : self.iceServers
             rtcConfig.bundlePolicy = .maxBundle
             rtcConfig.rtcpMuxPolicy = .require
@@ -92,7 +91,8 @@ public class WebRTCCallManager {
                 constraints: constraints,
                 delegate: self
             ) else {
-                throw WebRTCError.peerConnectionCreationFailed
+                continuation.resume(throwing: WebRTCError.peerConnectionCreationFailed)
+                return
             }
             
             // Add local stream
@@ -106,11 +106,14 @@ public class WebRTCCallManager {
             
             print("🔗 Created peer connection with \(participantId), initiator: \(isInitiator)")
             
+            continuation.resume(returning: peerConnection)
+                
             if isInitiator {
-                try await self.createAndSendOffer(participantId: participantId)
+                Task {
+                    try? await self.createAndSendOffer(participantId: participantId)
+                }
             }
-            
-            return peerConnection
+            }
         }
     }
     
@@ -208,7 +211,7 @@ public class WebRTCCallManager {
     
     private func createSessionDescription(
         peerConnection: RTCPeerConnection,
-        type: RTCSessionDescriptionType,
+        type: RTCSdpType,
         constraints: RTCMediaConstraints
     ) async -> RTCSessionDescription {
         return await withCheckedContinuation { continuation in

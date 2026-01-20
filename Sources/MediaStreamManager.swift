@@ -52,32 +52,44 @@ public class MediaStreamManager {
         videoHeight: Int = 720,
         frameRate: Int = 30
     ) async throws -> RTCMediaStream {
-        return try await queue.async(flags: .barrier) { [weak self] in
-            guard let self = self else {
-                throw MediaStreamError.deallocated
-            }
-            
-            let factory = RTCPeerConnectionFactory()
-            let mediaStream = factory.mediaStream(withStreamId: UUID().uuidString)
-            
-            if audioEnabled {
-                try self.addAudioTrack(to: mediaStream, using: factory)
-            }
-            
-            if videoEnabled {
-                try self.addVideoTrack(
-                    to: mediaStream,
-                    using: factory,
-                    width: videoWidth,
-                    height: videoHeight,
-                    frameRate: frameRate
+        return try await withCheckedThrowingContinuation { continuation in
+            queue.async(flags: .barrier) { [weak self] in
+                guard let self = self else {
+                    continuation.resume(throwing: MediaStreamError.deallocated)
+                    return
+                }
+                
+                let videoEncoderFactory = RTCDefaultVideoEncoderFactory()
+                let videoDecoderFactory = RTCDefaultVideoDecoderFactory()
+                let factory = RTCPeerConnectionFactory(
+                    encoderFactory: videoEncoderFactory,
+                    decoderFactory: videoDecoderFactory
                 )
+                let mediaStream = factory.mediaStream(withStreamId: UUID().uuidString)
+                
+                do {
+                    if audioEnabled {
+                        try self.addAudioTrack(to: mediaStream, using: factory)
+                    }
+                    
+                    if videoEnabled {
+                        try self.addVideoTrack(
+                            to: mediaStream,
+                            using: factory,
+                            width: videoWidth,
+                            height: videoHeight,
+                            frameRate: frameRate
+                        )
+                    }
+                    
+                    self.localStream = mediaStream
+                    print("✅ Local media obtained with \(mediaStream.audioTracks.count) audio and \(mediaStream.videoTracks.count) video tracks")
+                    
+                    continuation.resume(returning: mediaStream)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
             }
-            
-            self.localStream = mediaStream
-            print("✅ Local media obtained with \(mediaStream.audioTracks.count) audio and \(mediaStream.videoTracks.count) video tracks")
-            
-            return mediaStream
         }
     }
     
