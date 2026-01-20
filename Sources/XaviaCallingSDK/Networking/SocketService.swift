@@ -27,7 +27,7 @@ class SocketService: NSObject, SocketServiceProtocol, URLSessionWebSocketDelegat
     private var webSocketTask: URLSessionWebSocketTask?
     private let baseUrl: String
     private weak var webRTCService: WebRTCService?
-    private let session: URLSession
+    private var session: URLSession
     
     var isConnected: Bool = false
     
