@@ -1,5 +1,4 @@
 import Foundation
-import Starscream
 
 protocol SocketServiceProtocol: AnyObject {
     func connect(userId: String, userName: String) async throws
@@ -24,10 +23,11 @@ protocol SocketServiceProtocol: AnyObject {
     var onConnectionChange: ((Bool) -> Void)? { get set }
 }
 
-class SocketService: SocketServiceProtocol, WebSocketDelegate {
-    private var webSocket: WebSocket?
+class SocketService: NSObject, SocketServiceProtocol, URLSessionWebSocketDelegate {
+    private var webSocketTask: URLSessionWebSocketTask?
     private let baseUrl: String
     private weak var webRTCService: WebRTCService?
+    private let session: URLSession
     
     var isConnected: Bool = false
     
@@ -49,6 +49,8 @@ class SocketService: SocketServiceProtocol, WebSocketDelegate {
     init(baseUrl: String, webRTCService: WebRTCService) {
         self.baseUrl = baseUrl
         self.webRTCService = webRTCService
+        self.session = URLSession(configuration: .default)
+        super.init()
     }
     
     func connect(userId: String, userName: String) async throws {
@@ -58,16 +60,21 @@ class SocketService: SocketServiceProtocol, WebSocketDelegate {
             throw WebRTCError.socketError("Invalid URL: \(urlString)")
         }
         
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 20
-        
         Logger.log("🔌 Connecting to WebSocket: \(urlString)")
         
-        let socket = WebSocket(request: request)
-        socket.delegate = self
-        socket.connect()
+        // Create URLSession with delegate
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = 20
+        configuration.timeoutIntervalForResource = 30
         
-        self.webSocket = socket
+        let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+        self.session = session
+        
+        webSocketTask = session.webSocketTask(with: url)
+        webSocketTask?.resume()
+        
+        // Start receiving messages
+        receiveMessage()
         
         // Wait for connection with timeout
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
@@ -87,73 +94,61 @@ class SocketService: SocketServiceProtocol, WebSocketDelegate {
         registerUser(userId: userId, userName: userName)
     }
     
+    private func receiveMessage() {
+        webSocketTask?.receive { [weak self] result in
+            guard let self = self else { return }
+            
+            switch result {
+            case .success(let message):
+                switch message {
+                case .string(let text):
+                    self.handleMessage(text)
+                case .data(let data):
+                    if let text = String(data: data, encoding: .utf8) {
+                        self.handleMessage(text)
+                    }
+                @unknown default:
+                    break
+                }
+                // Continue receiving messages
+                self.receiveMessage()
+                
+            case .failure(let error):
+                Logger.error("Receive error: \(error)")
+                self.isConnected = false
+                self.onConnectionChange?(false)
+                self.onError?(error.localizedDescription)
+            }
+        }
+    }
+    
     func disconnect() {
-        webSocket?.disconnect()
-        webSocket = nil
+        webSocketTask?.cancel(with: .goingAway, reason: nil)
+        webSocketTask = nil
         isConnected = false
         onConnectionChange?(false)
     }
     
-    // MARK: - WebSocketDelegate
+    // MARK: - URLSessionWebSocketDelegate
     
-    func didReceive(event: WebSocketEvent, client: WebSocket) {
-        switch event {
-        case .connected(let headers):
-            Logger.log("✅ Socket connected")
-            isConnected = true
-            onConnectionChange?(true)
-            
-            // Resume connection continuation
-            connectionContinuation?.resume()
-            connectionContinuation = nil
-            
-        case .disconnected(let reason, let code):
-            Logger.log("❌ Socket disconnected: \(reason) (\(code))")
-            isConnected = false
-            onConnectionChange?(false)
-            
-        case .text(let text):
-            handleMessage(text)
-            
-        case .binary(let data):
-            Logger.debug("Received binary data: \(data.count) bytes")
-            
-        case .ping, .pong:
-            break
-            
-        case .viabilityChanged(let isViable):
-            Logger.log("Viability changed: \(isViable)")
-            
-        case .reconnectSuggested(let shouldReconnect):
-            Logger.log("Reconnect suggested: \(shouldReconnect)")
-            if shouldReconnect && !isConnected {
-                client.connect()
-            }
-            
-        case .cancelled:
-            isConnected = false
-            onConnectionChange?(false)
-            
-        case .error(let error):
-            let errorMessage = error?.localizedDescription ?? "Unknown socket error"
-            Logger.error("Socket error: \(errorMessage)")
-            isConnected = false
-            onConnectionChange?(false)
-            
-            // Resume with error if waiting for connection
-            if let continuation = connectionContinuation {
-                continuation.resume(throwing: WebRTCError.socketError(errorMessage))
-                connectionContinuation = nil
-            }
-            
-            onError?(errorMessage)
-            
-        case .peerClosed:
-            Logger.log("Peer closed connection")
-            isConnected = false
-            onConnectionChange?(false)
-        }
+    func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) {
+        Logger.log("✅ Socket connected")
+        isConnected = true
+        onConnectionChange?(true)
+        
+        // Resume connection continuation
+        connectionContinuation?.resume()
+        connectionContinuation = nil
     }
+    
+    func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
+        let reasonString = reason.flatMap { String(data: $0, encoding: .utf8) } ?? "Unknown"
+        Logger.log("❌ Socket disconnected: \(reasonString) (\(closeCode.rawValue))")
+        isConnected = false
+        onConnectionChange?(false)
+    }
+    
+    // MARK: - Message Handling
     
     private func handleMessage(_ text: String) {
         do {
@@ -297,8 +292,14 @@ class SocketService: SocketServiceProtocol, WebSocketDelegate {
         do {
             let data = try JSONEncoder().encode(message)
             if let text = String(data: data, encoding: .utf8) {
-                webSocket?.write(string: text)
-                Logger.debug("📤 Sent: \(message)")
+                webSocketTask?.send(.string(text)) { [weak self] error in
+                    if let error = error {
+                        Logger.error("Send error: \(error)")
+                        self?.onError?(error.localizedDescription)
+                    } else {
+                        Logger.debug("📤 Sent: \(message)")
+                    }
+                }
             }
         } catch {
             Logger.error("Failed to encode message: \(error)")

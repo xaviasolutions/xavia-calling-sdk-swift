@@ -15,10 +15,8 @@ Pod::Spec.new do |s|
   s.ios.deployment_target = '13.0'
   
   s.source_files = 'Sources/XaviaCallingSDK/**/*.{swift,h,m}'
-  
-  # Use available WebRTC pod
-  s.dependency 'WebRTC-lib', '~> 124.0'
-  s.dependency 'Starscream', '4.0.8'
+
+  s.dependency 'WebRTC-lib', '124.0.0'
   
   s.pod_target_xcconfig = {
     'ENABLE_BITCODE' => 'NO',

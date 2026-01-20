@@ -12,15 +12,13 @@ let package = Package(
             targets: ["XaviaCallingSDK"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/stasel/WebRTC.git", .upToNextMajor(from: "124.0.0")),
-        .package(url: "https://github.com/daltoniam/Starscream.git", .exact("4.0.8"))
+        .package(url: "https://github.com/stasel/WebRTC.git", .exact("124.0.0"))
     ],
     targets: [
         .target(
             name: "XaviaCallingSDK",
             dependencies: [
-                .product(name: "WebRTC", package: "WebRTC"),
-                "Starscream"
+                .product(name: "WebRTC", package: "WebRTC")
             ],
             path: "Sources/XaviaCallingSDK",
             exclude: ["Info.plist"],
