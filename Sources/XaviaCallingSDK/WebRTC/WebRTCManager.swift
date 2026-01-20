@@ -158,7 +158,10 @@ class WebRTCManager: NSObject, WebRTCManagerProtocol {
                 fromId: fromId,
                 targetId: participantId,
                 callId: callId,
-                signal: SignalPayload(sdp: offer.sdp, type: offer.type.rawValue),
+                signal: SignalPayload(
+                    sdp: offer.sdp, 
+                    type: String(offer.type.rawValue) 
+                ),
                 type: .offer
             )
             
@@ -171,7 +174,7 @@ class WebRTCManager: NSObject, WebRTCManagerProtocol {
     private func handleOffer(_ data: SignalData, peerConnection: RTCPeerConnection) async throws {
         guard let sdpString = data.signal.sdp,
               let typeString = data.signal.type,
-              let type = RTCSdpType(from: typeString) else {
+              let type = RTCSdpType.fromString(typeString) else {
             throw WebRTCError.webRTCError("Invalid SDP data in offer")
         }
         
@@ -187,7 +190,10 @@ class WebRTCManager: NSObject, WebRTCManagerProtocol {
             fromId: currentParticipantId ?? "",
             targetId: data.fromId,
             callId: currentCallId,
-            signal: SignalPayload(sdp: answer.sdp, type: answer.type.rawValue),
+            signal: SignalPayload(
+                sdp: answer.sdp, 
+                type: String(answer.type.rawValue)
+            ),
             type: .answer
         )
         
@@ -197,7 +203,7 @@ class WebRTCManager: NSObject, WebRTCManagerProtocol {
     private func handleAnswer(_ data: SignalData, peerConnection: RTCPeerConnection) async throws {
         guard let sdpString = data.signal.sdp,
               let typeString = data.signal.type,
-              let type = RTCSdpType(from: typeString) else {
+              let type = RTCSdpType.fromString(typeString) else {
             throw WebRTCError.webRTCError("Invalid SDP data in answer")
         }
         
@@ -353,11 +359,11 @@ extension WebRTCManager: RTCPeerConnectionDelegate {
 
 // MARK: - RTCSdpType Extension
 extension RTCSdpType {
-    init?(from string: String) {
+    static func fromString(_ string: String) -> RTCSdpType? {
         switch string.lowercased() {
-        case "offer": self = .offer
-        case "answer": self = .answer
-        case "pranswer": self = .prAnswer
+        case "offer": return .offer
+        case "answer": return .answer
+        case "pranswer": return .prAnswer
         default: return nil
         }
     }

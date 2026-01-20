@@ -68,7 +68,7 @@ class WebRTCService: NSObject {
         self.socketService = SocketService(baseUrl: baseUrl, webRTCService: self)
         
         // Connect socket
-        try await socketService?.connect(userId: userId, userName: self.userName)
+        try await socketService?.connect(userId: userId, userName: self.userName!)
         
         // Setup socket event handlers
         setupSocketEventHandlers()
