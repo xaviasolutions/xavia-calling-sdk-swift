@@ -1,69 +1,39 @@
 Pod::Spec.new do |s|
-  # Basic Information
   s.name             = 'XaviaCallingSDK'
-  s.version          = '1.0.0'
-  s.summary          = 'A comprehensive WebRTC calling SDK for iOS applications'
+  s.version          = '2.0.0'
+  s.summary          = 'Xavia Calling SDK for iOS - WebRTC based video/audio calling'
   s.description      = <<-DESC
-XaviaCallingSDK provides a complete WebRTC-based calling solution for iOS applications.
-It includes signaling, peer-to-peer connections, media streaming, and call management.
-Perfect for building video/audio calling features into your mobile apps.
+  A comprehensive WebRTC-based calling SDK for iOS that provides video/audio calling capabilities with signaling, media handling, and call management.
                        DESC
-
-  # Repository Information
+  
   s.homepage         = 'https://github.com/xaviasolutions/xavia-calling-sdk-swift'
-  s.license          = { :type => 'MIT', :file => '../LICENSE' }
-  s.author           = { 'Xavia Solutions' => 'contact@xavia.solutions' }
-  s.source           = { 
-    :git => 'https://github.com/xaviasolutions/xavia-calling-sdk-swift.git', 
-    :tag => s.version.to_s 
-  }
-
-  # Platform Requirements
+  s.license          = { :type => 'MIT', :file => 'LICENSE' }
+  s.author           = { 'Xavia Solutions' => 'contact@xavia.com' }
+  s.source           = { :git => 'https://github.com/xaviasolutions/xavia-calling-sdk-swift.git', :branch => 'v2' }
+  
+  s.swift_version = '5.7'
   s.ios.deployment_target = '13.0'
-  s.swift_versions = ['5.0', '5.1', '5.2', '5.3', '5.4', '5.5']
-
-  # Source Files Configuration
-  s.source_files = 'Sources/**/*.swift'
   
-  # Resource Files (if any)
-  s.resource_bundles = {
-    'XaviaCallingSDK' => ['Sources/Resources/*.xcprivacy']
-  }
-
-  # Dependencies
-  s.dependency 'GoogleWebRTC', '~> 1.1'
-  s.dependency 'Socket.IO-Client-Swift', '~> 16.1'
+  s.source_files = 'Sources/XaviaCallingSDK/**/*.{swift,h,m}'
   
-  # Frameworks and Libraries
-  s.frameworks = 'Foundation', 'AVFoundation', 'AudioToolbox', 'CoreGraphics', 'CoreMedia', 'UIKit', 'VideoToolbox'
-  s.libraries = 'c++'
+  s.dependency 'WebRTC-SDK', '124.0.0'
+  s.dependency 'Starscream', '4.0.8'
   
-  # Build Settings
   s.pod_target_xcconfig = {
-    'DEFINES_MODULE' => 'YES',
-    'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386',
+    'ENABLE_BITCODE' => 'NO',
     'OTHER_LDFLAGS' => '-ObjC',
     'CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES' => 'YES',
+    'VALID_ARCHS' => 'arm64 armv7 x86_64',
+    'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'arm64'
+  }
+  
+  s.user_target_xcconfig = {
     'ENABLE_BITCODE' => 'NO'
   }
   
-  # Module Map for Objective-C Compatibility
-  s.module_map = 'Sources/XaviaCallingSDK.modulemap'
-  
-  # Privacy Manifest (iOS 14+ requirement)
-  s.info_plist = {
-    'NSPrivacyAccessedAPITypes' => [
-      {
-        'NSPrivacyAccessedAPIType' => 'NSPrivacyAccessedAPICategoryFileTimestamp',
-        'NSPrivacyAccessedAPITypeReasons' => ['C617.1']
-      },
-      {
-        'NSPrivacyAccessedAPIType' => 'NSPrivacyAccessedAPICategorySystemBootTime',
-        'NSPrivacyAccessedAPITypeReasons' => ['35F9.1']
-      }
-    ]
+  s.resource_bundles = {
+    'XaviaCallingSDK' => ['Sources/XaviaCallingSDK/PrivacyInfo.xcprivacy']
   }
   
-  # Preserve paths for header files if needed
-  s.preserve_paths = 'Sources/**/*'
+  s.requires_arc = true
 end
