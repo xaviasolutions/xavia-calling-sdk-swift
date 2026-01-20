@@ -178,12 +178,13 @@ class MediaManager {
         } else if enabled {
             // Restart capture if was stopped
             guard let device = findBestCaptureDevice(),
-                  let format = selectBestFormat(for: device, constraints: nil),
-                  let capturer = videoCapturer else {
+                let capturer = videoCapturer else {
                 return
             }
             
+            let format = selectBestFormat(for: device, constraints: nil)
             let fps = selectBestFPS(for: format, constraints: nil)
+            
             capturer.startCapture(with: device, format: format, fps: fps)
         }
     }
