@@ -16,16 +16,15 @@ Pod::Spec.new do |s|
   
   s.source_files = 'Sources/XaviaCallingSDK/**/*.{swift,h,m}'
   
-  # Use WebRTC binary framework instead of WebRTC-SDK pod
-  s.vendored_frameworks = 'Frameworks/WebRTC.xcframework'
-  
+  # Dependencies
+  s.dependency 'GoogleWebRTC', '~> 1.1'
   s.dependency 'Starscream', '4.0.8'
   
   s.pod_target_xcconfig = {
     'ENABLE_BITCODE' => 'NO',
     'OTHER_LDFLAGS' => '-ObjC',
     'CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES' => 'YES',
-    'VALID_ARCHS' => 'arm64 armv7 x86_64',
+    'VALID_ARCHS' => 'arm64 x86_64',
     'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'arm64'
   }
   

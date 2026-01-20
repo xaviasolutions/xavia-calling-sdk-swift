@@ -1,5 +1,5 @@
 import Foundation
-import WebRTC
+import GoogleWebRTC
 import AVFoundation
 
 class MediaManager {

@@ -12,19 +12,25 @@ let package = Package(
             targets: ["XaviaCallingSDK"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/webrtc-sdk/Specs.git", .exact("124.0.0")),
+        .package(url: "https://github.com/lyokone/GoogleWebRTC.git", .exact("1.1.31999")),
         .package(url: "https://github.com/daltoniam/Starscream.git", .exact("4.0.8"))
     ],
     targets: [
         .target(
             name: "XaviaCallingSDK",
             dependencies: [
-                .product(name: "WebRTC", package: "Specs"),
+                .product(name: "GoogleWebRTC", package: "GoogleWebRTC"),
                 "Starscream"
             ],
-            path: "Sources/XaviaCallingSDK"),
+            path: "Sources/XaviaCallingSDK",
+            exclude: ["Info.plist"],
+            resources: [
+                .copy("PrivacyInfo.xcprivacy")
+            ]),
         .testTarget(
             name: "XaviaCallingSDKTests",
-            dependencies: ["XaviaCallingSDK"]),
-    ]
+            dependencies: ["XaviaCallingSDK"],
+            path: "Tests/XaviaCallingSDKTests"),
+    ],
+    swiftLanguageVersions: [.v5]
 )

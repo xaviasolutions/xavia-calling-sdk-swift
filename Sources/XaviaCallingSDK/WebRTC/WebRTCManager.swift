@@ -1,5 +1,5 @@
 import Foundation
-import WebRTC
+import GoogleWebRTC
 
 protocol WebRTCManagerProtocol: AnyObject {
     func updateICEServers(_ iceServers: [ICEServer])
