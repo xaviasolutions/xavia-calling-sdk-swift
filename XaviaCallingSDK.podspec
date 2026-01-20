@@ -26,7 +26,7 @@ Pod::Spec.new do |s|
   s.source_files = 'Sources/**/*.swift'
   
   # Dependencies
-  s.dependency 'WebRTC-lib'
+  s.dependency 'GoogleWebRTC', '~> 1.1'
   s.dependency 'Socket.IO-Client-Swift', '~> 16.0'
   
   # Framework settings
@@ -39,6 +39,12 @@ Pod::Spec.new do |s|
   # Pod settings
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
-    'SWIFT_VERSION' => '5.9'
+    'SWIFT_VERSION' => '5.9',
+    'ENABLE_BITCODE' => 'NO',
+    'OTHER_LDFLAGS' => '$(inherited) -framework WebRTC'
+  }
+  
+  s.user_target_xcconfig = {
+    'ENABLE_BITCODE' => 'NO'
   }
 end

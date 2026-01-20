@@ -1,5 +1,5 @@
 import Foundation
-import WebRTC
+import GoogleWebRTC
 
 /// Main SDK entry point - Production-ready iOS WebRTC calling SDK
 public class XaviaCallingSDK {

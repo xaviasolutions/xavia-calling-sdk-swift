@@ -1,5 +1,5 @@
 import Foundation
-import WebRTC
+import GoogleWebRTC
 
 /// Manages WebRTC peer connections and SDP/ICE negotiation
 public class WebRTCCallManager {
