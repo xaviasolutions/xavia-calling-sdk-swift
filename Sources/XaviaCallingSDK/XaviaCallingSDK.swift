@@ -1,4 +1,5 @@
 import Foundation
+import WebRTC
 
 public class XaviaCallingSDK {
     public static let shared = XaviaCallingSDK()
