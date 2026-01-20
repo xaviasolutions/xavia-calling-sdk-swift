@@ -16,7 +16,7 @@ Pod::Spec.new do |s|
                        DESC
 
   s.homepage         = 'https://github.com/xaviasolutions/xavia-calling-sdk-swift'
-  s.license          = { :type => 'Proprietary', :text => 'Copyright 2024 Xavia Inc. All rights reserved.' }
+  s.license          = { :type => 'Proprietary', :text => 'Copyright 2026 Xavia Inc. All rights reserved.' }
   s.author           = { 'Xavia Inc' => 'support@xavia.io' }
   s.source           = { :git => 'https://github.com/xaviasolutions/xavia-calling-sdk-swift.git', :tag => s.version.to_s }
 

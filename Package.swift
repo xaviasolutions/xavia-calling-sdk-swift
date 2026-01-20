@@ -13,10 +13,7 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(
-            url: "https://github.com/webrtc-sdk/WebRTC.git",
-            .upToNextMajor(from: "1.0.0")
-        ),
+        .package(url: "https://github.com/stasel/WebRTC.git", .upToNextMajor("141.0.0")),
         .package(
             url: "https://github.com/socketio/socket.io-client-swift.git",
             .upToNextMajor(from: "16.0.0")
