@@ -1,5 +1,5 @@
 import Foundation
-import GoogleWebRTC
+import WebRTC
 
 /// Manages media streams (audio/video) for local and remote participants
 public class MediaStreamManager {
