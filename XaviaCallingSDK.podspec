@@ -18,7 +18,7 @@ Pod::Spec.new do |s|
   
   # Use available WebRTC pod
   s.dependency 'WebRTC-lib', '~> 124.0'
-  s.dependency 'Starscream', '4.0.8'
+  s.dependency 'Starscream', '4.0'
   
   s.pod_target_xcconfig = {
     'ENABLE_BITCODE' => 'NO',
