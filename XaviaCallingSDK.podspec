@@ -16,8 +16,8 @@ Pod::Spec.new do |s|
   
   s.source_files = 'Sources/XaviaCallingSDK/**/*.{swift,h,m}'
   
-  # Dependencies
-  s.dependency 'GoogleWebRTC', '~> 1.1'
+  # Use WebRTC from a maintained source
+  s.dependency 'WebRTC', '~> 124'
   s.dependency 'Starscream', '4.0.8'
   
   s.pod_target_xcconfig = {
