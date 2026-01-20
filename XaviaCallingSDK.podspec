@@ -6,7 +6,7 @@ Pod::Spec.new do |s|
   A comprehensive WebRTC-based calling SDK for iOS that provides video/audio calling capabilities with signaling, media handling, and call management.
                        DESC
   
-  s.homepage         = 'https://github.com/xaviasolutions/xavia-calling-sdk-swift'
+  s.homepage         = 'https://github.com/xaviasolutions/xavia-calling-sdk-swift.git'
   s.license          = { :type => 'MIT', :file => 'LICENSE' }
   s.author           = { 'Xavia Solutions' => 'contact@xavia.com' }
   s.source           = { :git => 'https://github.com/xaviasolutions/xavia-calling-sdk-swift.git', :branch => 'v2' }
@@ -16,8 +16,8 @@ Pod::Spec.new do |s|
   
   s.source_files = 'Sources/XaviaCallingSDK/**/*.{swift,h,m}'
   
-  # Use WebRTC from a maintained source
-  s.dependency 'WebRTC', '~> 124'
+  # Use available WebRTC pod
+  s.dependency 'WebRTC-lib', '~> 124.0'
   s.dependency 'Starscream', '4.0.8'
   
   s.pod_target_xcconfig = {
