@@ -31,16 +31,30 @@ Configuration/
 
 ### 1. Add to Your Project
 
+**Using CocoaPods** (Recommended):
+
+Add to your `Podfile`:
+```ruby
+pod 'XaviaCallingSDK', :git => 'https://github.com/xaviasolutions/xavia-calling-sdk-swift.git', :branch => 'v3'
+```
+
+Then run:
+```bash
+pod install
+```
+
+**Using Swift Package Manager**:
+
 In your `Package.swift`:
 ```swift
 dependencies: [
-    .package(url: "https://github.com/yourusername/XaviaCallingSDK.git", branch: "main")
+    .package(url: "https://github.com/xaviasolutions/xavia-calling-sdk-swift.git", branch: "v3")
 ]
 ```
 
 Or in Xcode:
 - File → Add Packages
-- Paste: `https://github.com/yourusername/XaviaCallingSDK.git`
+- Paste: `https://github.com/xaviasolutions/xavia-calling-sdk-swift.git`
 - Select version and add to your target
 
 ### 2. Import and Initialize

@@ -20,6 +20,7 @@
 | Complete API | [API_REFERENCE.md](API_REFERENCE.md) | 20 min |
 | How it works | [IMPLEMENTATION.md](IMPLEMENTATION.md) | 30 min |
 | Code examples | [EXAMPLES.md](EXAMPLES.md) | 30 min |
+| CocoaPods setup | [COCOAPODS_INSTALLATION.md](COCOAPODS_INSTALLATION.md) | 10 min |
 | Verify completion | [PROJECT_CHECKLIST.md](PROJECT_CHECKLIST.md) | 5 min |
 | File locations | [FILE_NAVIGATION.md](FILE_NAVIGATION.md) | 5 min |
 | What's delivered | [DELIVERABLES.md](DELIVERABLES.md) | 10 min |
@@ -29,6 +30,7 @@
 ```
 XaviaCallingSDK-Swift/
 ├── 📄 Package.swift                    SPM configuration
+├── 📄 XaviaCallingSDK.podspec          CocoaPods spec
 ├── 📄 .gitignore                       Git config
 │
 ├── 📂 Sources/                         All Swift code
@@ -39,12 +41,13 @@ XaviaCallingSDK-Swift/
 │   ├── 📄 MediaStreamManager.swift     Media (300 lines)
 │   └── 📄 Models.swift                 Data (300 lines)
 │
-└── 📚 Documentation/ (8 files, 3300+ lines)
+└── 📚 Documentation/ (9 files, 3500+ lines)
     ├── 📄 GETTING_STARTED.md           👈 START HERE
     ├── 📄 README.md                    Main guide
     ├── 📄 API_REFERENCE.md             All APIs
     ├── 📄 IMPLEMENTATION.md            Architecture
     ├── 📄 EXAMPLES.md                  Code samples
+    ├── 📄 COCOAPODS_INSTALLATION.md    CocoaPods guide
     ├── 📄 DELIVERABLES.md              What's included
     ├── 📄 PROJECT_CHECKLIST.md         Status
     └── 📄 FILE_NAVIGATION.md           This index
@@ -53,7 +56,7 @@ XaviaCallingSDK-Swift/
 ## 🚀 Getting Started in 5 Steps
 
 1. **Read** [GETTING_STARTED.md](GETTING_STARTED.md) (5 min)
-2. **Add** to your Xcode project (Package.swift)
+2. **Install** via CocoaPods or SPM - See [COCOAPODS_INSTALLATION.md](COCOAPODS_INSTALLATION.md)
 3. **Copy** example from [EXAMPLES.md](EXAMPLES.md) (10 min)
 4. **Debug** using console logs and error handlers
 5. **Reference** [API_REFERENCE.md](API_REFERENCE.md) as needed
@@ -63,9 +66,10 @@ XaviaCallingSDK-Swift/
 ### For Different Users
 
 **👨‍💻 iOS Developer (New to WebRTC)**
-1. [GETTING_STARTED.md](GETTING_STARTED.md) - Overview
-2. [EXAMPLES.md](EXAMPLES.md) - See code
-3. [API_REFERENCE.md](API_REFERENCE.md) - Reference
+1. [COCOAPODS_INSTALLATION.md](COCOAPODS_INSTALLATION.md) - Install SDK
+2. [GETTING_STARTED.md](GETTING_STARTED.md) - Overview
+3. [EXAMPLES.md](EXAMPLES.md) - See code
+4. [API_REFERENCE.md](API_REFERENCE.md) - Reference
 4. [README.md](README.md) - Deep dive
 
 **🏗️ Architect/Tech Lead**

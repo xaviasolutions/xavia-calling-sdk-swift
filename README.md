@@ -16,17 +16,37 @@ A production-ready native iOS Swift SDK for WebRTC calling, built to mirror the 
 
 ## Installation
 
+### CocoaPods
+
+Add to your `Podfile`:
+
+```ruby
+pod 'XaviaCallingSDK', :git => 'https://github.com/xaviasolutions/xavia-calling-sdk-swift.git', :branch => 'v3'
+```
+
+Or for a specific version:
+
+```ruby
+pod 'XaviaCallingSDK', '~> 1.0.0'
+```
+
+Then run:
+
+```bash
+pod install
+```
+
 ### Swift Package Manager
 
 Add the package to your `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/yourusername/XaviaCallingSDK.git", branch: "main")
+.package(url: "https://github.com/xaviasolutions/xavia-calling-sdk-swift.git", branch: "v3")
 ```
 
 Or in Xcode:
 1. File → Add Packages
-2. Enter: `https://github.com/yourusername/XaviaCallingSDK.git`
+2. Enter: `https://github.com/xaviasolutions/xavia-calling-sdk-swift.git`
 3. Select version and add to target
 
 ## Quick Start
