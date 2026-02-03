@@ -11,26 +11,34 @@ Pod::Spec.new do |s|
   - Media controls
   - ICE candidate handling
   - Auto-reconnection
-                       DESC
+  DESC
   
   s.homepage         = 'https://github.com/xaviasolutions/xavia-calling-sdk-swift'
   s.license          = { :type => 'MIT', :file => 'LICENSE' }
   s.author           = { 'Xavia Solutions' => 'support@xaviasolutions.com' }
-  s.source           = { :git => 'https://github.com/xaviasolutions/xavia-calling-sdk-swift.git', :tag => s.version.to_s }
+  s.source           = { :git => 'https://github.com/xaviasolutions/xavia-calling-sdk-swift.git', :branch => 'v5' }
   
-  s.ios.deployment_target = '15.0'
-  s.swift_version = '5.9'
+  # Lower deployment target to match your project
+  s.ios.deployment_target = '13.0'
+  s.swift_version = '5.5'
   
   s.source_files = 'Sources/**/*.swift'
+  s.public_header_files = 'Sources/*.h'
   
-  s.dependency 'GoogleWebRTC', '~> 1.1.31999'
+  # Dependencies
+  s.dependency 'GoogleWebRTC', '~> 1.1'
   s.dependency 'Socket.IO-Client-Swift', '~> 16.0'
   
-  s.frameworks = 'AVFoundation', 'AudioToolbox', 'CoreMedia', 'CoreVideo'
+  s.frameworks = 'AVFoundation', 'AudioToolbox', 'CoreMedia', 'CoreVideo', 'Foundation'
   s.libraries = 'c++'
   
   s.pod_target_xcconfig = {
     'VALID_ARCHS' => 'arm64 arm64e x86_64',
-    'ENABLE_BITCODE' => 'NO'
+    'ENABLE_BITCODE' => 'NO',
+    'DEFINES_MODULE' => 'YES'
+  }
+  
+  s.user_target_xcconfig = {
+    'VALID_ARCHS' => 'arm64 arm64e x86_64'
   }
 end
