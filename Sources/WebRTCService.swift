@@ -1,33 +1,37 @@
 import Foundation
+import AVFoundation
 import WebRTC
 import SocketIO
 
-// MARK: - Public API (Same as JavaScript)
+// MARK: - Public API
 
-public protocol WebRTCServiceDelegate: AnyObject {
-    func onConnectionChange(_ isConnected: Bool)
-    func onLocalStream(_ stream: RTCMediaStream)
-    func onRemoteStream(_ participantId: String, stream: RTCMediaStream)
-    func onRemoteStreamRemoved(_ participantId: String)
-    func onOnlineUsers(_ users: [CallParticipant])
-    func onIncomingCall(_ data: IncomingCallData)
-    func onCallAccepted(_ data: CallResponse)
-    func onCallRejected(_ data: CallResponse)
-    func onParticipantJoined(_ participant: CallParticipant)
-    func onParticipantLeft(_ participant: CallParticipant)
-    func onError(_ message: String)
+@objc public protocol WebRTCServiceDelegate: AnyObject {
+    @objc optional func onConnectionChange(_ isConnected: Bool)
+    @objc optional func onLocalStream(_ stream: RTCMediaStream)
+    @objc optional func onRemoteStream(_ participantId: String, stream: RTCMediaStream)
+    @objc optional func onRemoteStreamRemoved(_ participantId: String)
+    @objc optional func onOnlineUsers(_ users: [CallParticipant])
+    @objc optional func onIncomingCall(_ data: IncomingCallData)
+    @objc optional func onCallAccepted(_ data: CallResponse)
+    @objc optional func onCallRejected(_ data: CallResponse)
+    @objc optional func onParticipantJoined(_ participant: CallParticipant)
+    @objc optional func onParticipantLeft(_ participant: CallParticipant)
+    @objc optional func onError(_ message: String)
 }
 
-public final class WebRTCService {
+@objc public final class WebRTCService: NSObject {
     
     // MARK: - Singleton
-    public static let shared = WebRTCService()
-    private init() {}
+    @objc public static let shared = WebRTCService()
+    private override init() {
+        super.init()
+        RTCPeerConnectionFactory.initialize()
+    }
     
     // MARK: - Public Properties
-    public weak var delegate: WebRTCServiceDelegate?
+    @objc public weak var delegate: WebRTCServiceDelegate?
     
-    // Callback closures for flexibility (mirroring JavaScript)
+    // Callback closures for Swift users
     public var onConnectionChange: ((Bool) -> Void)?
     public var onLocalStream: ((RTCMediaStream) -> Void)?
     public var onRemoteStream: ((String, RTCMediaStream) -> Void)?
@@ -40,19 +44,26 @@ public final class WebRTCService {
     public var onParticipantLeft: ((CallParticipant) -> Void)?
     public var onError: ((String) -> Void)?
     
+    // MARK: - Objective-C Accessible Properties
+    @objc public private(set) var isConnected: Bool = false
+    @objc public private(set) var currentCallId: String?
+    @objc public private(set) var localStream: RTCMediaStream?
+    @objc public private(set) var remoteStreams: [String: RTCMediaStream] {
+        get { _remoteStreams }
+        set { _remoteStreams = newValue }
+    }
+    
     // MARK: - Private Properties
     private var socket: SocketIOClient?
     private var manager: SocketManager?
-    
     private var peerConnections: [String: RTCPeerConnection] = [:]
-    private var remoteStreams: [String: RTCMediaStream] = [:]
-    private var localStream: RTCMediaStream?
-    private var currentCallId: String?
+    private var _remoteStreams: [String: RTCMediaStream] = [:]
     private var currentParticipantId: String?
     private var userId: String?
     private var userName: String?
     private var iceServers: [RTCIceServer] = []
     private var baseUrl: String?
+    private var connectionTimeoutWorkItem: DispatchWorkItem?
     
     // MARK: - Factory
     private lazy var factory: RTCPeerConnectionFactory = {
@@ -67,19 +78,17 @@ public final class WebRTCService {
     // MARK: - Connection Management
     
     /// Connect to the signaling server
-    /// - Parameters:
-    ///   - serverUrl: The server URL
-    ///   - userId: User identifier
-    ///   - userName: User display name
-    public func connect(serverUrl: String, userId: String, userName: String) async throws {
+    @objc public func connect(serverUrl: String, userId: String, userName: String, completion: @escaping (Error?) -> Void) {
         // Validate username
         guard !userName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw WebRTCError.invalidUsername
+            completion(WebRTCError.invalidUsername)
+            return
         }
         
         // If already connected with same user, skip
         if let socket = socket, socket.status == .connected, self.userId == userId {
             print("⚠️ Already connected, skipping reconnection")
+            completion(nil)
             return
         }
         
@@ -96,10 +105,14 @@ public final class WebRTCService {
         
         // Create Socket.IO connection
         guard let url = URL(string: serverUrl) else {
-            throw WebRTCError.invalidURL
+            completion(WebRTCError.invalidURL)
+            return
         }
         
-        await MainActor.run {
+        // Cancel previous timeout
+        connectionTimeoutWorkItem?.cancel()
+        
+        DispatchQueue.main.async {
             self.manager = SocketManager(
                 socketURL: url,
                 config: [
@@ -115,27 +128,24 @@ public final class WebRTCService {
                 ]
             )
             
-            self.socket = manager?.defaultSocket
-            setupSocketListeners()
+            self.socket = self.manager?.defaultSocket
+            self.setupSocketListeners()
             self.socket?.connect()
-        }
-        
-        // Wait for connection
-        try await waitForConnection()
-    }
-    
-    private func waitForConnection() async throws {
-        for _ in 0..<50 { // 5 second timeout
-            if socket?.status == .connected {
-                return
+            
+            // Setup connection timeout
+            let timeoutWorkItem = DispatchWorkItem { [weak self] in
+                if let self = self, !self.isConnected {
+                    completion(WebRTCError.connectionTimeout)
+                    self.disconnect()
+                }
             }
-            try await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
+            self.connectionTimeoutWorkItem = timeoutWorkItem
+            DispatchQueue.global().asyncAfter(deadline: .now() + 10, execute: timeoutWorkItem)
         }
-        throw WebRTCError.connectionTimeout
     }
     
     /// Disconnect from server
-    public func disconnect() {
+    @objc public func disconnect() {
         leaveCall()
         
         socket?.disconnect()
@@ -145,6 +155,7 @@ public final class WebRTCService {
         userId = nil
         userName = nil
         baseUrl = nil
+        isConnected = false
         
         notifyConnectionChange(false)
     }
@@ -152,23 +163,24 @@ public final class WebRTCService {
     // MARK: - Call Management
     
     /// Create a new call
-    /// - Parameters:
-    ///   - callType: "audio" or "video"
-    ///   - isGroup: Whether it's a group call
-    ///   - maxParticipants: Maximum participants allowed
-    /// - Returns: Call response with call ID
-    public func createCall(callType: String = "video", isGroup: Bool = false, maxParticipants: Int = 1000) async throws -> CallResponse {
+    @objc public func createCall(callType: String = "video", 
+                                 isGroup: Bool = false, 
+                                 maxParticipants: Int = 1000,
+                                 completion: @escaping (CallResponse?, Error?) -> Void) {
         guard let baseUrl = baseUrl else {
-            throw WebRTCError.notConnected
+            completion(nil, WebRTCError.notConnected)
+            return
         }
         
         guard let url = URL(string: "\(baseUrl)/api/calls") else {
-            throw WebRTCError.invalidURL
+            completion(nil, WebRTCError.invalidURL)
+            return
         }
         
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 30
         
         let body: [String: Any] = [
             "callType": callType,
@@ -176,175 +188,238 @@ public final class WebRTCService {
             "maxParticipants": maxParticipants
         ]
         
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        
-        let (data, response) = try await URLSession.shared.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
-            throw WebRTCError.networkError
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        } catch {
+            completion(nil, error)
+            return
         }
         
-        let decoder = JSONDecoder()
-        let result = try decoder.decode(CallResponse.self, from: data)
-        
-        if !result.success {
-            throw WebRTCError.serverError(result.error ?? "Failed to create call")
+        let task = URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                DispatchQueue.main.async {
+                    completion(nil, error)
+                }
+                return
+            }
+            
+            guard let data = data,
+                  let httpResponse = response as? HTTPURLResponse,
+                  (200...299).contains(httpResponse.statusCode) else {
+                DispatchQueue.main.async {
+                    completion(nil, WebRTCError.networkError)
+                }
+                return
+            }
+            
+            do {
+                let decoder = JSONDecoder()
+                let result = try decoder.decode(CallResponse.self, from: data)
+                
+                if !result.success {
+                    DispatchQueue.main.async {
+                        completion(nil, WebRTCError.serverError(result.error ?? "Failed to create call"))
+                    }
+                    return
+                }
+                
+                print("✅ Call created: \(result.callId ?? "unknown")")
+                
+                if let iceServers = result.config?.iceServers {
+                    self.iceServers = iceServers
+                }
+                
+                DispatchQueue.main.async {
+                    completion(result, nil)
+                }
+            } catch {
+                print("Decode error: \(error)")
+                DispatchQueue.main.async {
+                    completion(nil, error)
+                }
+            }
         }
-        
-        print("✅ Call created: \(result.callId ?? "unknown")")
-        
-        if let iceServers = result.config?.iceServers {
-            self.iceServers = iceServers
-        }
-        
-        return result
+        task.resume()
     }
     
     /// Join an existing call
-    /// - Parameter callId: The call ID to join
-    /// - Returns: Call response with participant details
-    public func joinCall(callId: String) async throws -> CallResponse {
+    @objc public func joinCall(callId: String, completion: @escaping (CallResponse?, Error?) -> Void) {
         guard let baseUrl = baseUrl,
               let userId = userId,
               let userName = userName else {
-            throw WebRTCError.notConnected
+            completion(nil, WebRTCError.notConnected)
+            return
         }
         
         guard let url = URL(string: "\(baseUrl)/api/calls/\(callId)/join") else {
-            throw WebRTCError.invalidURL
+            completion(nil, WebRTCError.invalidURL)
+            return
         }
         
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 30
         
         let body: [String: Any] = [
             "userName": userName,
             "userId": userId
         ]
         
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        
-        let (data, response) = try await URLSession.shared.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
-            throw WebRTCError.networkError
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        } catch {
+            completion(nil, error)
+            return
         }
         
-        let decoder = JSONDecoder()
-        let result = try decoder.decode(CallResponse.self, from: data)
-        
-        if !result.success {
-            throw WebRTCError.serverError(result.error ?? "Failed to join call")
+        let task = URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                DispatchQueue.main.async {
+                    completion(nil, error)
+                }
+                return
+            }
+            
+            guard let data = data,
+                  let httpResponse = response as? HTTPURLResponse,
+                  (200...299).contains(httpResponse.statusCode) else {
+                DispatchQueue.main.async {
+                    completion(nil, WebRTCError.networkError)
+                }
+                return
+            }
+            
+            do {
+                let decoder = JSONDecoder()
+                let result = try decoder.decode(CallResponse.self, from: data)
+                
+                if !result.success {
+                    DispatchQueue.main.async {
+                        completion(nil, WebRTCError.serverError(result.error ?? "Failed to join call"))
+                    }
+                    return
+                }
+                
+                print("✅ Joined call via API: \(result.callId ?? "unknown")")
+                
+                self.currentCallId = result.callId
+                self.currentParticipantId = result.participantId
+                
+                if let iceServers = result.config?.iceServers {
+                    self.iceServers = iceServers
+                }
+                
+                // Get local media
+                self.getLocalMedia { stream, error in
+                    if let error = error {
+                        DispatchQueue.main.async {
+                            completion(nil, error)
+                        }
+                        return
+                    }
+                    
+                    // Join via socket
+                    self.socket?.emit("join-call", [
+                        "callId": result.callId ?? "",
+                        "participantId": result.participantId ?? "",
+                        "userName": userName
+                    ])
+                    
+                    DispatchQueue.main.async {
+                        completion(result, nil)
+                    }
+                }
+            } catch {
+                print("Decode error: \(error)")
+                DispatchQueue.main.async {
+                    completion(nil, error)
+                }
+            }
         }
-        
-        print("✅ Joined call via API: \(result.callId ?? "unknown")")
-        
-        currentCallId = result.callId
-        currentParticipantId = result.participantId
-        
-        if let iceServers = result.config?.iceServers {
-            self.iceServers = iceServers
-        }
-        
-        // Get local media
-        try await getLocalMedia()
-        
-        // Join via socket
-        socket?.emit("join-call", [
-            "callId": result.callId ?? "",
-            "participantId": result.participantId ?? "",
-            "userName": userName
-        ])
-        
-        return result
+        task.resume()
     }
     
     /// Get local media stream
-    /// - Returns: Local media stream
-    public func getLocalMedia() async throws -> RTCMediaStream {
+    @objc public func getLocalMedia(completion: @escaping (RTCMediaStream?, Error?) -> Void) {
         let streamId = "local_stream_\(UUID().uuidString)"
         let stream = factory.mediaStream(withStreamId: streamId)
         
-        // Add video track
-        let videoSource = factory.videoSource()
-        let videoTrack = factory.videoTrack(with: videoSource, trackId: "video_\(UUID().uuidString)")
-        
-        // Configure video constraints
-        let videoConstraints = RTCMediaConstraints(
-            mandatoryConstraints: [
-                "minWidth": "640",
-                "minHeight": "480",
-                "maxWidth": "1920",
-                "maxHeight": "1080",
-                "minFrameRate": "20",
-                "maxFrameRate": "60"
-            ],
-            optionalConstraints: nil
-        )
-        
-        // TODO: Configure video capturer here
-        stream.addVideoTrack(videoTrack)
-        
-        // Add audio track
-        let audioConstraints = RTCMediaConstraints(
-            mandatoryConstraints: nil,
-            optionalConstraints: [
-                "googEchoCancellation": "true",
-                "googNoiseSuppression": "true",
-                "googAutoGainControl": "true"
-            ]
-        )
-        
-        let audioSource = factory.audioSource(with: audioConstraints)
-        let audioTrack = factory.audioTrack(with: audioSource, trackId: "audio_\(UUID().uuidString)")
-        stream.addAudioTrack(audioTrack)
-        
-        localStream = stream
-        print("✅ Local media obtained")
-        
-        notifyLocalStream(stream)
-        
-        return stream
-    }
-    
-    /// Send call invitation
-    public func sendCallInvitation(targetUserId: String, callId: String, callType: String) async throws -> CallResponse {
-        guard let userId = userId, let userName = userName else {
-            throw WebRTCError.notConnected
-        }
-        
-        return try await withCheckedThrowingContinuation { continuation in
-            socket?.emitWithAck("send-call-invitation", [
-                "targetUserId": targetUserId,
-                "callId": callId,
-                "callType": callType,
-                "callerId": userId,
-                "callerName": userName
-            ]).timingOut(after: 10) { data in
-                if let dict = data.first as? [String: Any] {
-                    let response = CallResponse(
-                        success: dict["success"] as? Bool ?? false,
-                        callId: dict["callId"] as? String,
-                        error: dict["error"] as? String
+        // Request camera permission
+        AVCaptureDevice.requestAccess(for: .video) { videoGranted in
+            AVCaptureDevice.requestAccess(for: .audio) { audioGranted in
+                DispatchQueue.main.async {
+                    if !videoGranted || !audioGranted {
+                        completion(nil, WebRTCError.permissionDenied)
+                        return
+                    }
+                    
+                    // Add video track
+                    let videoSource = self.factory.videoSource()
+                    let videoTrack = self.factory.videoTrack(with: videoSource, trackId: "video_\(UUID().uuidString)")
+                    stream.addVideoTrack(videoTrack)
+                    
+                    // Add audio track
+                    let audioConstraints = RTCMediaConstraints(
+                        mandatoryConstraints: nil,
+                        optionalConstraints: [
+                            "googEchoCancellation": "true",
+                            "googNoiseSuppression": "true",
+                            "googAutoGainControl": "true"
+                        ]
                     )
                     
-                    if response.success {
-                        continuation.resume(returning: response)
-                    } else {
-                        continuation.resume(throwing: WebRTCError.serverError(response.error ?? "Invitation failed"))
-                    }
-                } else {
-                    continuation.resume(throwing: WebRTCError.invalidResponse)
+                    let audioSource = self.factory.audioSource(with: audioConstraints)
+                    let audioTrack = self.factory.audioTrack(with: audioSource, trackId: "audio_\(UUID().uuidString)")
+                    stream.addAudioTrack(audioTrack)
+                    
+                    self.localStream = stream
+                    print("✅ Local media obtained")
+                    
+                    self.notifyLocalStream(stream)
+                    completion(stream, nil)
                 }
             }
         }
     }
     
+    /// Send call invitation
+    @objc public func sendCallInvitation(targetUserId: String, 
+                                         callId: String, 
+                                         callType: String,
+                                         completion: @escaping (CallResponse?, Error?) -> Void) {
+        guard let userId = userId, let userName = userName else {
+            completion(nil, WebRTCError.notConnected)
+            return
+        }
+        
+        socket?.emitWithAck("send-call-invitation", [
+            "targetUserId": targetUserId,
+            "callId": callId,
+            "callType": callType,
+            "callerId": userId,
+            "callerName": userName
+        ]).timingOut(after: 10) { data in
+            if let dict = data.first as? [String: Any] {
+                let response = CallResponse(
+                    success: dict["success"] as? Bool ?? false,
+                    callId: dict["callId"] as? String,
+                    error: dict["error"] as? String
+                )
+                
+                if response.success {
+                    completion(response, nil)
+                } else {
+                    completion(nil, WebRTCError.serverError(response.error ?? "Invitation failed"))
+                }
+            } else {
+                completion(nil, WebRTCError.invalidResponse)
+            }
+        }
+    }
+    
     /// Accept incoming call
-    public func acceptCall(callId: String, callerId: String) {
+    @objc public func acceptCall(callId: String, callerId: String) {
         socket?.emit("accept-call", [
             "callId": callId,
             "callerId": callerId
@@ -352,7 +427,7 @@ public final class WebRTCService {
     }
     
     /// Reject incoming call
-    public func rejectCall(callId: String, callerId: String) {
+    @objc public func rejectCall(callId: String, callerId: String) {
         socket?.emit("reject-call", [
             "callId": callId,
             "callerId": callerId
@@ -360,7 +435,7 @@ public final class WebRTCService {
     }
     
     /// Leave current call
-    public func leaveCall() {
+    @objc public func leaveCall() {
         guard let callId = currentCallId else { return }
         
         print("👋 Leaving call: \(callId)")
@@ -370,46 +445,37 @@ public final class WebRTCService {
             "reason": "left"
         ])
         
-        // Cleanup
         cleanupPeerConnections()
         
         currentCallId = nil
         currentParticipantId = nil
+        localStream = nil
+        _remoteStreams.removeAll()
     }
     
     /// Toggle audio
-    public func toggleAudio(enabled: Bool) {
+    @objc public func toggleAudio(enabled: Bool) {
         localStream?.audioTracks.forEach { $0.isEnabled = enabled }
         print("🎤 Audio: \(enabled ? "enabled" : "disabled")")
     }
     
     /// Toggle video
-    public func toggleVideo(enabled: Bool) {
+    @objc public func toggleVideo(enabled: Bool) {
         localStream?.videoTracks.forEach { $0.isEnabled = enabled }
         print("📹 Video: \(enabled ? "enabled" : "disabled")")
     }
     
-    // MARK: - Helper Properties
+    // MARK: - Private Methods
     
-    public var isConnected: Bool {
-        socket?.status == .connected
-    }
-    
-    public var currentCall: String? {
-        currentCallId
-    }
-}
-
-// MARK: - Private Methods
-private extension WebRTCService {
-    
-    // MARK: - Socket Listeners
-    
-    func setupSocketListeners() {
+    private func setupSocketListeners() {
         guard let socket = socket else { return }
         
         socket.on(clientEvent: .connect) { [weak self] _, _ in
             print("✅ Socket connected")
+            self?.isConnected = true
+            self?.connectionTimeoutWorkItem?.cancel()
+            self?.connectionTimeoutWorkItem = nil
+            
             if let userId = self?.userId, let userName = self?.userName {
                 socket.emit("register-user", [
                     "userId": userId,
@@ -421,9 +487,16 @@ private extension WebRTCService {
         
         socket.on(clientEvent: .disconnect) { [weak self] _, _ in
             print("❌ Socket disconnected")
+            self?.isConnected = false
             self?.notifyConnectionChange(false)
         }
         
+        socket.on(clientEvent: .error) { [weak self] data, _ in
+            print("Socket error: \(data)")
+            self?.notifyError("Socket connection error")
+        }
+        
+        // Online users list
         socket.on("users-online") { [weak self] data, _ in
             guard let usersData = data.first as? [[String: Any]] else { return }
             let users = usersData.compactMap(CallParticipant.from(dictionary:))
@@ -431,6 +504,7 @@ private extension WebRTCService {
             self?.notifyOnlineUsers(users)
         }
         
+        // Incoming call invitation
         socket.on("incoming-call") { [weak self] data, _ in
             guard let dict = data.first as? [String: Any],
                   let callData = IncomingCallData.from(dictionary: dict) else { return }
@@ -438,6 +512,7 @@ private extension WebRTCService {
             self?.notifyIncomingCall(callData)
         }
         
+        // Call accepted
         socket.on("call-accepted") { [weak self] data, _ in
             guard let dict = data.first as? [String: Any] else { return }
             let response = CallResponse.from(dictionary: dict)
@@ -445,6 +520,7 @@ private extension WebRTCService {
             self?.notifyCallAccepted(response)
         }
         
+        // Call rejected
         socket.on("call-rejected") { [weak self] data, _ in
             guard let dict = data.first as? [String: Any] else { return }
             let response = CallResponse.from(dictionary: dict)
@@ -452,26 +528,115 @@ private extension WebRTCService {
             self?.notifyCallRejected(response)
         }
         
-        socket.on("signal") { [weak self] data, _ in
+        // Call joined successfully
+        socket.on("call-joined") { [weak self] data, _ in
             guard let dict = data.first as? [String: Any],
-                  let signalData = SignalData.from(dictionary: dict) else { return }
+                  let callId = dict["callId"] as? String,
+                  let participantsData = dict["participants"] as? [[String: Any]],
+                  let iceServersData = dict["iceServers"] as? [[String: Any]] else {
+                return
+            }
             
-            Task {
-                await self?.handleSignal(signalData)
+            print("✅ Joined call: \(callId)")
+            
+            // Parse participants
+            let participants = participantsData.compactMap(CallParticipant.from(dictionary:))
+            
+            // Parse ICE servers
+            self?.iceServers = iceServersData.compactMap { serverDict in
+                guard let urlsValue = serverDict["urls"] else { return nil }
+                if let urlString = urlsValue as? String {
+                    return RTCIceServer(urlStrings: [urlString])
+                } else if let urlArray = urlsValue as? [String] {
+                    return RTCIceServer(urlStrings: urlArray)
+                } else if let urlArray = serverDict["urls"] as? [String] {
+                    let username = serverDict["username"] as? String
+                    let credential = serverDict["credential"] as? String
+                    return RTCIceServer(urlStrings: urlArray, username: username, credential: credential)
+                }
+                return nil
+            }
+            
+            // Create peer connections for existing participants
+            for participant in participants {
+                if participant.id != self?.currentParticipantId {
+                    self?.createPeerConnection(participantId: participant.id, isInitiator: true)
+                }
             }
         }
         
+        // New participant joined
+        socket.on("participant-joined") { [weak self] data, _ in
+            guard let dict = data.first as? [String: Any],
+                  let participantId = dict["participantId"] as? String,
+                  let userName = dict["userName"] as? String,
+                  let userId = dict["userId"] as? String else {
+                return
+            }
+            
+            let participant = CallParticipant(id: participantId, userName: userName, userId: userId)
+            print("👤 Participant joined: \(userName)")
+            
+            if participantId != self?.currentParticipantId {
+                self?.createPeerConnection(participantId: participantId, isInitiator: false)
+            }
+            
+            self?.notifyParticipantJoined(participant)
+        }
+        
+        // Participant left
+        socket.on("participant-left") { [weak self] data, _ in
+            guard let dict = data.first as? [String: Any],
+                  let participantId = dict["participantId"] as? String else {
+                return
+            }
+            
+            print("👋 Participant left: \(participantId)")
+            self?.removePeerConnection(participantId: participantId)
+            
+            let participant = CallParticipant(
+                id: participantId,
+                userName: dict["userName"] as? String ?? "",
+                userId: dict["userId"] as? String ?? ""
+            )
+            self?.notifyParticipantLeft(participant)
+        }
+        
+        // WebRTC signaling
+        socket.on("signal") { [weak self] data, _ in
+            guard let dict = data.first as? [String: Any],
+                  let fromId = dict["fromId"] as? String,
+                  let signalData = dict["signal"] as? [String: Any],
+                  let typeString = dict["type"] as? String,
+                  let type = SignalType(rawValue: typeString) else {
+                return
+            }
+            
+            let signal = SignalContent(
+                sdp: signalData["sdp"] as? String,
+                type: signalData["type"] as? String,
+                candidate: signalData["candidate"] as? String,
+                sdpMid: signalData["sdpMid"] as? String,
+                sdpMLineIndex: signalData["sdpMLineIndex"] as? Int32
+            )
+            
+            let signalMessage = SignalData(fromId: fromId, signal: signal, type: type)
+            
+            self?.handleSignal(signalMessage)
+        }
+        
+        // Error handling
         socket.on("error") { [weak self] data, _ in
             guard let dict = data.first as? [String: Any],
-                  let message = dict["message"] as? String else { return }
+                  let message = dict["message"] as? String else {
+                return
+            }
             print("❌ Server error: \(message)")
             self?.notifyError(message)
         }
     }
     
-    // MARK: - Peer Connection
-    
-    func createPeerConnection(participantId: String, isInitiator: Bool) async {
+    private func createPeerConnection(participantId: String, isInitiator: Bool) {
         print("🔗 Creating peer connection with \(participantId), initiator: \(isInitiator)")
         
         let config = RTCConfiguration()
@@ -498,39 +663,50 @@ private extension WebRTCService {
         
         peerConnections[participantId] = pc
         
-        // Add local stream
+        // Add local stream tracks
         if let localStream = localStream {
             for track in localStream.videoTracks {
                 pc.add(track, streamIds: [localStream.streamId])
+                print("➕ Added local video track")
             }
             for track in localStream.audioTracks {
                 pc.add(track, streamIds: [localStream.streamId])
+                print("➕ Added local audio track")
             }
         }
         
-        // Create offer if initiator
+        // If initiator, create and send offer
         if isInitiator {
-            do {
-                let offer = try await pc.offer(for: constraints)
-                try await pc.setLocalDescription(offer)
+            pc.offer(for: constraints) { [weak self] offer, error in
+                guard let offer = offer, error == nil else {
+                    print("Create offer error: \(error?.localizedDescription ?? "unknown")")
+                    self?.notifyError("Failed to create offer: \(error?.localizedDescription ?? "unknown")")
+                    return
+                }
                 
-                socket?.emit("signal", [
-                    "callId": currentCallId ?? "",
-                    "targetId": participantId,
-                    "signal": [
-                        "sdp": offer.sdp,
-                        "type": offer.type.rawValue
-                    ],
-                    "type": "offer"
-                ])
-            } catch {
-                print("Create offer error: \(error)")
-                notifyError("Failed to create offer: \(error.localizedDescription)")
+                pc.setLocalDescription(offer) { error in
+                    if let error = error {
+                        print("Set local description error: \(error)")
+                        return
+                    }
+                    
+                    print("📤 Sending offer to \(participantId)")
+                    
+                    self?.socket?.emit("signal", [
+                        "callId": self?.currentCallId ?? "",
+                        "targetId": participantId,
+                        "signal": [
+                            "sdp": offer.sdp,
+                            "type": offer.type.rawValue
+                        ],
+                        "type": "offer"
+                    ])
+                }
             }
         }
     }
     
-    func handleSignal(_ data: SignalData) async {
+    private func handleSignal(_ data: SignalData) {
         let fromId = data.fromId
         let signal = data.signal
         let type = data.type
@@ -539,9 +715,9 @@ private extension WebRTCService {
         
         var pc = peerConnections[fromId]
         
-        // Create connection if doesn't exist
+        // Create peer connection if doesn't exist
         if pc == nil {
-            await createPeerConnection(participantId: fromId, isInitiator: false)
+            createPeerConnection(participantId: fromId, isInitiator: false)
             pc = peerConnections[fromId]
         }
         
@@ -550,72 +726,98 @@ private extension WebRTCService {
             return
         }
         
-        do {
-            switch type {
-            case .offer:
-                guard let sdp = signal.sdp, let typeStr = signal.type,
-                      let type = RTCSdpType(rawValue: typeStr) else {
-                    throw WebRTCError.invalidSignal
-                }
-                
-                let remoteSdp = RTCSessionDescription(type: type, sdp: sdp)
-                try await peerConnection.setRemoteDescription(remoteSdp)
-                
-                let answer = try await peerConnection.answer(for: nil)
-                try await peerConnection.setLocalDescription(answer)
-                
-                socket?.emit("signal", [
-                    "callId": currentCallId ?? "",
-                    "targetId": fromId,
-                    "signal": [
-                        "sdp": answer.sdp,
-                        "type": answer.type.rawValue
-                    ],
-                    "type": "answer"
-                ])
-                
-            case .answer:
-                guard let sdp = signal.sdp, let typeStr = signal.type,
-                      let type = RTCSdpType(rawValue: typeStr) else {
-                    throw WebRTCError.invalidSignal
-                }
-                
-                let remoteSdp = RTCSessionDescription(type: type, sdp: sdp)
-                try await peerConnection.setRemoteDescription(remoteSdp)
-                
-            case .iceCandidate:
-                guard let candidate = signal.candidate,
-                      let sdpMid = signal.sdpMid,
-                      let sdpMLineIndex = signal.sdpMLineIndex else {
-                    throw WebRTCError.invalidSignal
-                }
-                
-                let iceCandidate = RTCIceCandidate(
-                    sdp: candidate,
-                    sdpMLineIndex: Int32(sdpMLineIndex),
-                    sdpMid: sdpMid
-                )
-                
-                try await peerConnection.add(iceCandidate)
+        switch type {
+        case .offer:
+            guard let sdp = signal.sdp, let typeStr = signal.type,
+                  let sdpType = RTCSdpType(rawValue: typeStr) else {
+                notifyError("Invalid offer signal")
+                return
             }
-        } catch {
-            print("Handle signal error: \(error)")
-            notifyError("Signal handling failed: \(error.localizedDescription)")
+            
+            let remoteSdp = RTCSessionDescription(type: sdpType, sdp: sdp)
+            peerConnection.setRemoteDescription(remoteSdp) { [weak self] error in
+                if let error = error {
+                    print("Set remote description error: \(error)")
+                    self?.notifyError("Failed to set remote description: \(error.localizedDescription)")
+                    return
+                }
+                
+                peerConnection.answer(for: nil) { answer, error in
+                    guard let answer = answer, error == nil else {
+                        print("Create answer error: \(error?.localizedDescription ?? "unknown")")
+                        self?.notifyError("Failed to create answer: \(error?.localizedDescription ?? "unknown")")
+                        return
+                    }
+                    
+                    peerConnection.setLocalDescription(answer) { error in
+                        if let error = error {
+                            print("Set local description error: \(error)")
+                            return
+                        }
+                        
+                        print("📤 Sending answer to \(fromId)")
+                        
+                        self?.socket?.emit("signal", [
+                            "callId": self?.currentCallId ?? "",
+                            "targetId": fromId,
+                            "signal": [
+                                "sdp": answer.sdp,
+                                "type": answer.type.rawValue
+                            ],
+                            "type": "answer"
+                        ])
+                    }
+                }
+            }
+            
+        case .answer:
+            guard let sdp = signal.sdp, let typeStr = signal.type,
+                  let sdpType = RTCSdpType(rawValue: typeStr) else {
+                notifyError("Invalid answer signal")
+                return
+            }
+            
+            let remoteSdp = RTCSessionDescription(type: sdpType, sdp: sdp)
+            peerConnection.setRemoteDescription(remoteSdp) { error in
+                if let error = error {
+                    print("Set remote description error: \(error)")
+                }
+            }
+            
+        case .iceCandidate:
+            guard let candidate = signal.candidate,
+                  let sdpMid = signal.sdpMid,
+                  let sdpMLineIndex = signal.sdpMLineIndex else {
+                notifyError("Invalid ICE candidate")
+                return
+            }
+            
+            let iceCandidate = RTCIceCandidate(
+                sdp: candidate,
+                sdpMLineIndex: Int32(sdpMLineIndex),
+                sdpMid: sdpMid
+            )
+            
+            peerConnection.add(iceCandidate)
         }
     }
     
-    func removePeerConnection(participantId: String) {
-        peerConnections[participantId]?.close()
-        peerConnections.removeValue(forKey: participantId)
+    private func removePeerConnection(participantId: String) {
+        if let pc = peerConnections[participantId] {
+            pc.close()
+            peerConnections.removeValue(forKey: participantId)
+        }
         
-        remoteStreams.removeValue(forKey: participantId)
-        notifyRemoteStreamRemoved(participantId)
+        if _remoteStreams[participantId] != nil {
+            _remoteStreams.removeValue(forKey: participantId)
+            notifyRemoteStreamRemoved(participantId)
+        }
     }
     
-    func cleanupPeerConnections() {
+    private func cleanupPeerConnections() {
         peerConnections.values.forEach { $0.close() }
         peerConnections.removeAll()
-        remoteStreams.removeAll()
+        _remoteStreams.removeAll()
         
         // Stop local stream
         localStream?.audioTracks.forEach { $0.isEnabled = false }
@@ -625,65 +827,80 @@ private extension WebRTCService {
     
     // MARK: - Notification Helpers
     
-    func notifyConnectionChange(_ isConnected: Bool) {
+    private func notifyConnectionChange(_ isConnected: Bool) {
         DispatchQueue.main.async {
-            self.delegate?.onConnectionChange(isConnected)
+            self.delegate?.onConnectionChange?(isConnected)
             self.onConnectionChange?(isConnected)
         }
     }
     
-    func notifyLocalStream(_ stream: RTCMediaStream) {
+    private func notifyLocalStream(_ stream: RTCMediaStream) {
         DispatchQueue.main.async {
-            self.delegate?.onLocalStream(stream)
+            self.delegate?.onLocalStream?(stream)
             self.onLocalStream?(stream)
         }
     }
     
-    func notifyRemoteStream(_ participantId: String, _ stream: RTCMediaStream) {
+    private func notifyRemoteStream(_ participantId: String, _ stream: RTCMediaStream) {
         DispatchQueue.main.async {
-            self.delegate?.onRemoteStream(participantId, stream)
+            self._remoteStreams[participantId] = stream
+            self.delegate?.onRemoteStream?(participantId, stream)
             self.onRemoteStream?(participantId, stream)
         }
     }
     
-    func notifyRemoteStreamRemoved(_ participantId: String) {
+    private func notifyRemoteStreamRemoved(_ participantId: String) {
         DispatchQueue.main.async {
-            self.delegate?.onRemoteStreamRemoved(participantId)
+            self.delegate?.onRemoteStreamRemoved?(participantId)
             self.onRemoteStreamRemoved?(participantId)
         }
     }
     
-    func notifyOnlineUsers(_ users: [CallParticipant]) {
+    private func notifyOnlineUsers(_ users: [CallParticipant]) {
         DispatchQueue.main.async {
-            self.delegate?.onOnlineUsers(users)
+            self.delegate?.onOnlineUsers?(users)
             self.onOnlineUsers?(users)
         }
     }
     
-    func notifyIncomingCall(_ data: IncomingCallData) {
+    private func notifyIncomingCall(_ data: IncomingCallData) {
         DispatchQueue.main.async {
-            self.delegate?.onIncomingCall(data)
+            self.delegate?.onIncomingCall?(data)
             self.onIncomingCall?(data)
         }
     }
     
-    func notifyCallAccepted(_ data: CallResponse) {
+    private func notifyCallAccepted(_ data: CallResponse) {
         DispatchQueue.main.async {
-            self.delegate?.onCallAccepted(data)
+            self.delegate?.onCallAccepted?(data)
             self.onCallAccepted?(data)
         }
     }
     
-    func notifyCallRejected(_ data: CallResponse) {
+    private func notifyCallRejected(_ data: CallResponse) {
         DispatchQueue.main.async {
-            self.delegate?.onCallRejected(data)
+            self.delegate?.onCallRejected?(data)
             self.onCallRejected?(data)
         }
     }
     
-    func notifyError(_ message: String) {
+    private func notifyParticipantJoined(_ participant: CallParticipant) {
         DispatchQueue.main.async {
-            self.delegate?.onError(message)
+            self.delegate?.onParticipantJoined?(participant)
+            self.onParticipantJoined?(participant)
+        }
+    }
+    
+    private func notifyParticipantLeft(_ participant: CallParticipant) {
+        DispatchQueue.main.async {
+            self.delegate?.onParticipantLeft?(participant)
+            self.onParticipantLeft?(participant)
+        }
+    }
+    
+    private func notifyError(_ message: String) {
+        DispatchQueue.main.async {
+            self.delegate?.onError?(message)
             self.onError?(message)
         }
     }
@@ -696,7 +913,6 @@ extension WebRTCService: RTCPeerConnectionDelegate {
         guard let participantId = findParticipantId(for: peerConnection) else { return }
         
         print("📥 Received remote stream from \(participantId)")
-        remoteStreams[participantId] = stream
         notifyRemoteStream(participantId, stream)
     }
     
@@ -704,12 +920,13 @@ extension WebRTCService: RTCPeerConnectionDelegate {
         guard let participantId = findParticipantId(for: peerConnection) else { return }
         
         print("Removed remote stream from \(participantId)")
-        remoteStreams.removeValue(forKey: participantId)
         notifyRemoteStreamRemoved(participantId)
     }
     
     public func peerConnection(_ peerConnection: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {
         guard let participantId = findParticipantId(for: peerConnection) else { return }
+        
+        print("📡 Sending ICE candidate to \(participantId)")
         
         socket?.emit("signal", [
             "callId": currentCallId ?? "",
@@ -724,7 +941,13 @@ extension WebRTCService: RTCPeerConnectionDelegate {
     }
     
     public func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {
-        print("ICE connection state changed: \(newState.rawValue)")
+        guard let participantId = findParticipantId(for: peerConnection) else { return }
+        print("ICE connection state with \(participantId): \(newState.rawValue)")
+        
+        if newState == .disconnected || newState == .failed || newState == .closed {
+            // Clean up failed connection
+            removePeerConnection(participantId: participantId)
+        }
     }
     
     public func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCSignalingState) {
@@ -732,7 +955,8 @@ extension WebRTCService: RTCPeerConnectionDelegate {
     }
     
     public func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCPeerConnectionState) {
-        print("Peer connection state changed: \(newState.rawValue)")
+        guard let participantId = findParticipantId(for: peerConnection) else { return }
+        print("Peer connection state with \(participantId): \(newState.rawValue)")
     }
     
     public func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceGatheringState) {
@@ -745,6 +969,7 @@ extension WebRTCService: RTCPeerConnectionDelegate {
     
     public func peerConnectionShouldNegotiate(_ peerConnection: RTCPeerConnection) {
         // Trigger renegotiation if needed
+        print("Peer connection should negotiate")
     }
     
     public func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {
@@ -752,6 +977,6 @@ extension WebRTCService: RTCPeerConnectionDelegate {
     }
     
     private func findParticipantId(for peerConnection: RTCPeerConnection) -> String? {
-        peerConnections.first { $0.value === peerConnection }?.key
+        return peerConnections.first { $0.value === peerConnection }?.key
     }
 }

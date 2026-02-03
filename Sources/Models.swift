@@ -3,12 +3,12 @@ import WebRTC
 
 // MARK: - Data Models
 
-public struct CallParticipant: Codable {
-    public let id: String
-    public let userName: String
-    public let userId: String
+@objc public class CallParticipant: NSObject, Codable {
+    @objc public let id: String
+    @objc public let userName: String
+    @objc public let userId: String
     
-    public init(id: String, userName: String, userId: String) {
+    @objc public init(id: String, userName: String, userId: String) {
         self.id = id
         self.userName = userName
         self.userId = userId
@@ -24,10 +24,10 @@ public struct CallParticipant: Codable {
     }
 }
 
-public struct ICEConfig: Codable {
-    public let iceServers: [RTCIceServer]
+@objc public class ICEConfig: NSObject, Codable {
+    @objc public let iceServers: [RTCIceServer]
     
-    public init(iceServers: [RTCIceServer]) {
+    @objc public init(iceServers: [RTCIceServer]) {
         self.iceServers = iceServers
     }
     
@@ -35,31 +35,81 @@ public struct ICEConfig: Codable {
         case iceServers
     }
     
-    public init(from decoder: Decoder) throws {
+    public required init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        let serversData = try container.decode([[String: [String]]].self, forKey: .iceServers)
+        let serversData = try container.decode([[String: Any]].self, forKey: .iceServers)
         
         iceServers = serversData.compactMap { serverDict in
-            guard let urls = serverDict["urls"] else { return nil }
-            return RTCIceServer(urlStrings: urls)
+            guard let urlsValue = serverDict["urls"] else { return nil }
+            
+            if let urlString = urlsValue as? String {
+                return RTCIceServer(urlStrings: [urlString])
+            } else if let urlArray = urlsValue as? [String] {
+                let username = serverDict["username"] as? String
+                let credential = serverDict["credential"] as? String
+                return RTCIceServer(urlStrings: urlArray, username: username, credential: credential)
+            }
+            return nil
         }
     }
     
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        let serversData = iceServers.map { ["urls": $0.urlStrings] }
-        try container.encode(serversData, forKey: .iceServers)
+        let serversData = iceServers.map { server -> [String: Any] in
+            var dict: [String: Any] = ["urls": server.urlStrings]
+            if let username = server.username {
+                dict["username"] = username
+            }
+            if let credential = server.credential {
+                dict["credential"] = credential
+            }
+            return dict
+        }
+        
+        // Custom encoding for RTCIceServer
+        var nestedContainer = container.nestedUnkeyedContainer(forKey: .iceServers)
+        for server in iceServers {
+            var serverContainer = nestedContainer.nestedContainer(keyedBy: DynamicCodingKey.self)
+            let urlsKey = DynamicCodingKey(stringValue: "urls")!
+            try serverContainer.encode(server.urlStrings, forKey: urlsKey)
+            
+            if let username = server.username {
+                let usernameKey = DynamicCodingKey(stringValue: "username")!
+                try serverContainer.encode(username, forKey: usernameKey)
+            }
+            
+            if let credential = server.credential {
+                let credentialKey = DynamicCodingKey(stringValue: "credential")!
+                try serverContainer.encode(credential, forKey: credentialKey)
+            }
+        }
     }
 }
 
-public struct CallResponse: Codable {
-    public let success: Bool
-    public let callId: String?
-    public let error: String?
-    public let config: ICEConfig?
-    public let participantId: String?
+// Helper for dynamic coding keys
+private struct DynamicCodingKey: CodingKey {
+    var stringValue: String
+    var intValue: Int?
     
-    public init(success: Bool, callId: String? = nil, error: String? = nil, 
+    init?(stringValue: String) {
+        self.stringValue = stringValue
+        self.intValue = nil
+    }
+    
+    init?(intValue: Int) {
+        self.stringValue = String(intValue)
+        self.intValue = intValue
+    }
+}
+
+@objc public class CallResponse: NSObject, Codable {
+    @objc public let success: Bool
+    @objc public let callId: String?
+    @objc public let error: String?
+    @objc public let config: ICEConfig?
+    @objc public let participantId: String?
+    
+    @objc public init(success: Bool, callId: String? = nil, error: String? = nil, 
                 config: ICEConfig? = nil, participantId: String? = nil) {
         self.success = success
         self.callId = callId
@@ -69,22 +119,40 @@ public struct CallResponse: Codable {
     }
     
     static func from(dictionary: [String: Any]) -> CallResponse {
-        CallResponse(
+        var config: ICEConfig? = nil
+        if let configDict = dictionary["config"] as? [String: Any],
+           let iceServersData = configDict["iceServers"] as? [[String: Any]] {
+            let iceServers = iceServersData.compactMap { serverDict -> RTCIceServer? in
+                guard let urlsValue = serverDict["urls"] else { return nil }
+                if let urlString = urlsValue as? String {
+                    return RTCIceServer(urlStrings: [urlString])
+                } else if let urlArray = urlsValue as? [String] {
+                    let username = serverDict["username"] as? String
+                    let credential = serverDict["credential"] as? String
+                    return RTCIceServer(urlStrings: urlArray, username: username, credential: credential)
+                }
+                return nil
+            }
+            config = ICEConfig(iceServers: iceServers)
+        }
+        
+        return CallResponse(
             success: dictionary["success"] as? Bool ?? false,
             callId: dictionary["callId"] as? String,
             error: dictionary["error"] as? String,
+            config: config,
             participantId: dictionary["participantId"] as? String
         )
     }
 }
 
-public struct IncomingCallData: Codable {
-    public let callerId: String
-    public let callerName: String
-    public let callId: String
-    public let callType: String
+@objc public class IncomingCallData: NSObject, Codable {
+    @objc public let callerId: String
+    @objc public let callerName: String
+    @objc public let callId: String
+    @objc public let callType: String
     
-    public init(callerId: String, callerName: String, callId: String, callType: String) {
+    @objc public init(callerId: String, callerName: String, callId: String, callType: String) {
         self.callerId = callerId
         self.callerName = callerName
         self.callId = callId
@@ -107,12 +175,12 @@ public struct IncomingCallData: Codable {
     }
 }
 
-public struct SignalData {
-    public let fromId: String
-    public let signal: SignalContent
-    public let type: SignalType
+@objc public class SignalData: NSObject {
+    @objc public let fromId: String
+    @objc public let signal: SignalContent
+    @objc public let type: SignalType
     
-    public init(fromId: String, signal: SignalContent, type: SignalType) {
+    @objc public init(fromId: String, signal: SignalContent, type: SignalType) {
         self.fromId = fromId
         self.signal = signal
         self.type = type
@@ -138,14 +206,14 @@ public struct SignalData {
     }
 }
 
-public struct SignalContent {
-    public let sdp: String?
-    public let type: String?
-    public let candidate: String?
-    public let sdpMid: String?
-    public let sdpMLineIndex: Int32?
+@objc public class SignalContent: NSObject {
+    @objc public let sdp: String?
+    @objc public let type: String?
+    @objc public let candidate: String?
+    @objc public let sdpMid: String?
+    @objc public let sdpMLineIndex: Int32?
     
-    public init(sdp: String? = nil, type: String? = nil, candidate: String? = nil, 
+    @objc public init(sdp: String? = nil, type: String? = nil, candidate: String? = nil, 
                 sdpMid: String? = nil, sdpMLineIndex: Int32? = nil) {
         self.sdp = sdp
         self.type = type
@@ -155,20 +223,37 @@ public struct SignalContent {
     }
 }
 
-public enum SignalType: String {
+@objc public enum SignalType: Int {
     case offer
     case answer
-    case iceCandidate = "ice-candidate"
+    case iceCandidate
+    
+    var rawValue: String {
+        switch self {
+        case .offer: return "offer"
+        case .answer: return "answer"
+        case .iceCandidate: return "ice-candidate"
+        }
+    }
+    
+    init?(rawValue: String) {
+        switch rawValue {
+        case "offer": self = .offer
+        case "answer": self = .answer
+        case "ice-candidate": self = .iceCandidate
+        default: return nil
+        }
+    }
 }
 
 // MARK: - Errors
 
-public enum WebRTCError: LocalizedError {
+@objc public enum WebRTCError: Int, LocalizedError {
     case invalidUsername
     case notConnected
     case invalidURL
     case networkError
-    case serverError(String)
+    case serverError
     case invalidResponse
     case connectionTimeout
     case invalidSignal
@@ -184,8 +269,8 @@ public enum WebRTCError: LocalizedError {
             return "Invalid server URL"
         case .networkError:
             return "Network error occurred"
-        case .serverError(let message):
-            return message
+        case .serverError:
+            return "Server error"
         case .invalidResponse:
             return "Invalid response from server"
         case .connectionTimeout:
@@ -195,5 +280,11 @@ public enum WebRTCError: LocalizedError {
         case .permissionDenied:
             return "Camera or microphone permission denied"
         }
+    }
+    
+    public static func serverError(_ message: String) -> NSError {
+        return NSError(domain: "WebRTCService", 
+                      code: WebRTCError.serverError.rawValue, 
+                      userInfo: [NSLocalizedDescriptionKey: message])
     }
 }
