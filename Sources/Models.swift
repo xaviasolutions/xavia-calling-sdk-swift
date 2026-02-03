@@ -1,217 +1,199 @@
 import Foundation
+import WebRTC
 
-/// Data model for ICE server configuration
-public struct ICEServer: Codable {
-    public let urls: [String]
-    public let username: String?
-    public let credential: String?
+// MARK: - Data Models
+
+public struct CallParticipant: Codable {
+    public let id: String
+    public let userName: String
+    public let userId: String
     
-    public init(urls: [String], username: String? = nil, credential: String? = nil) {
-        self.urls = urls
-        self.username = username
-        self.credential = credential
+    public init(id: String, userName: String, userId: String) {
+        self.id = id
+        self.userName = userName
+        self.userId = userId
+    }
+    
+    static func from(dictionary: [String: Any]) -> CallParticipant? {
+        guard let id = dictionary["id"] as? String,
+              let userName = dictionary["userName"] as? String,
+              let userId = dictionary["userId"] as? String else {
+            return nil
+        }
+        return CallParticipant(id: id, userName: userName, userId: userId)
     }
 }
 
-/// WebRTC configuration
-public struct WebRTCConfig: Codable {
-    public let iceServers: [ICEServer]
+public struct ICEConfig: Codable {
+    public let iceServers: [RTCIceServer]
     
-    public init(iceServers: [ICEServer] = [ICEServer(urls: ["stun:stun.l.google.com:19302"])]) {
+    public init(iceServers: [RTCIceServer]) {
         self.iceServers = iceServers
     }
-}
-
-/// Call information
-public struct Call: Codable {
-    public let callId: String
-    public let callType: String
-    public let isGroup: Bool
-    public let maxParticipants: Int
-    public let config: WebRTCConfig
     
     enum CodingKeys: String, CodingKey {
-        case callId
-        case callType
-        case isGroup
-        case maxParticipants
-        case config
+        case iceServers
     }
     
-    public init(
-        callId: String,
-        callType: String = "video",
-        isGroup: Bool = false,
-        maxParticipants: Int = 1000,
-        config: WebRTCConfig = WebRTCConfig()
-    ) {
-        self.callId = callId
-        self.callType = callType
-        self.isGroup = isGroup
-        self.maxParticipants = maxParticipants
-        self.config = config
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let serversData = try container.decode([[String: [String]]].self, forKey: .iceServers)
+        
+        iceServers = serversData.compactMap { serverDict in
+            guard let urls = serverDict["urls"] else { return nil }
+            return RTCIceServer(urlStrings: urls)
+        }
+    }
+    
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        let serversData = iceServers.map { ["urls": $0.urlStrings] }
+        try container.encode(serversData, forKey: .iceServers)
     }
 }
 
-/// Call join response
-public struct JoinCallResponse: Codable {
+public struct CallResponse: Codable {
     public let success: Bool
-    public let callId: String
-    public let participantId: String
-    public let participants: [Participant]
-    public let config: WebRTCConfig
+    public let callId: String?
     public let error: String?
+    public let config: ICEConfig?
+    public let participantId: String?
     
-    enum CodingKeys: String, CodingKey {
-        case success
-        case callId
-        case participantId
-        case participants
-        case config
-        case error
+    public init(success: Bool, callId: String? = nil, error: String? = nil, 
+                config: ICEConfig? = nil, participantId: String? = nil) {
+        self.success = success
+        self.callId = callId
+        self.error = error
+        self.config = config
+        self.participantId = participantId
+    }
+    
+    static func from(dictionary: [String: Any]) -> CallResponse {
+        CallResponse(
+            success: dictionary["success"] as? Bool ?? false,
+            callId: dictionary["callId"] as? String,
+            error: dictionary["error"] as? String,
+            participantId: dictionary["participantId"] as? String
+        )
     }
 }
 
-/// Participant information
-public struct Participant: Codable {
-    public let id: String
-    public let name: String
-    
-    enum CodingKeys: String, CodingKey {
-        case id
-        case name = "userName"
-    }
-    
-    public init(id: String, name: String) {
-        self.id = id
-        self.name = name
-    }
-}
-
-/// Online user information
-public struct OnlineUser: Codable {
-    public let userId: String
-    public let userName: String
-    
-    enum CodingKeys: String, CodingKey {
-        case userId
-        case userName
-    }
-    
-    public init(userId: String, userName: String) {
-        self.userId = userId
-        self.userName = userName
-    }
-}
-
-/// Incoming call data
-public struct IncomingCall: Codable {
-    public let callId: String
+public struct IncomingCallData: Codable {
     public let callerId: String
     public let callerName: String
+    public let callId: String
     public let callType: String
     
-    enum CodingKeys: String, CodingKey {
-        case callId
-        case callerId
-        case callerName
-        case callType
+    public init(callerId: String, callerName: String, callId: String, callType: String) {
+        self.callerId = callerId
+        self.callerName = callerName
+        self.callId = callId
+        self.callType = callType
     }
-}
-
-/// Call accepted data
-public struct CallAccepted: Codable {
-    public let callId: String
-    public let acceptedById: String
-    public let acceptedByName: String
     
-    enum CodingKeys: String, CodingKey {
-        case callId
-        case acceptedById
-        case acceptedByName
+    static func from(dictionary: [String: Any]) -> IncomingCallData? {
+        guard let callerId = dictionary["callerId"] as? String,
+              let callerName = dictionary["callerName"] as? String,
+              let callId = dictionary["callId"] as? String,
+              let callType = dictionary["callType"] as? String else {
+            return nil
+        }
+        return IncomingCallData(
+            callerId: callerId,
+            callerName: callerName,
+            callId: callId,
+            callType: callType
+        )
     }
 }
 
-/// Call rejected data
-public struct CallRejected: Codable {
-    public let callId: String
-    public let rejectedById: String
-    public let rejectedByName: String
+public struct SignalData {
+    public let fromId: String
+    public let signal: SignalContent
+    public let type: SignalType
     
-    enum CodingKeys: String, CodingKey {
-        case callId
-        case rejectedById
-        case rejectedByName
+    public init(fromId: String, signal: SignalContent, type: SignalType) {
+        self.fromId = fromId
+        self.signal = signal
+        self.type = type
     }
-}
-
-/// Participant joined data
-public struct ParticipantJoined: Codable {
-    public let callId: String
-    public let participantId: String
-    public let userName: String
     
-    enum CodingKeys: String, CodingKey {
-        case callId
-        case participantId
-        case userName
+    static func from(dictionary: [String: Any]) -> SignalData? {
+        guard let fromId = dictionary["fromId"] as? String,
+              let signalDict = dictionary["signal"] as? [String: Any],
+              let typeString = dictionary["type"] as? String,
+              let type = SignalType(rawValue: typeString) else {
+            return nil
+        }
+        
+        let signal = SignalContent(
+            sdp: signalDict["sdp"] as? String,
+            type: signalDict["type"] as? String,
+            candidate: signalDict["candidate"] as? String,
+            sdpMid: signalDict["sdpMid"] as? String,
+            sdpMLineIndex: signalDict["sdpMLineIndex"] as? Int32
+        )
+        
+        return SignalData(fromId: fromId, signal: signal, type: type)
     }
 }
 
-/// Participant left data
-public struct ParticipantLeft: Codable {
-    public let callId: String
-    public let participantId: String
-    
-    enum CodingKeys: String, CodingKey {
-        case callId
-        case participantId
-    }
-}
-
-/// WebRTC signal data
-public struct Signal: Codable {
-    public let callId: String
-    public let targetId: String?
-    public let fromId: String?
-    public let signal: SignalPayload
-    public let type: String
-    
-    enum CodingKeys: String, CodingKey {
-        case callId
-        case targetId
-        case fromId
-        case signal
-        case type
-    }
-}
-
-/// Signal payload for SDP and ICE candidates
-public struct SignalPayload: Codable {
+public struct SignalContent {
     public let sdp: String?
     public let type: String?
     public let candidate: String?
     public let sdpMid: String?
-    public let sdpMLineIndex: Int?
+    public let sdpMLineIndex: Int32?
     
-    enum CodingKeys: String, CodingKey {
-        case sdp
-        case type
-        case candidate
-        case sdpMid
-        case sdpMLineIndex
+    public init(sdp: String? = nil, type: String? = nil, candidate: String? = nil, 
+                sdpMid: String? = nil, sdpMLineIndex: Int32? = nil) {
+        self.sdp = sdp
+        self.type = type
+        self.candidate = candidate
+        self.sdpMid = sdpMid
+        self.sdpMLineIndex = sdpMLineIndex
     }
 }
 
-/// API Error response
-public struct APIError: Codable {
-    public let success: Bool
-    public let error: String
+public enum SignalType: String {
+    case offer
+    case answer
+    case iceCandidate = "ice-candidate"
 }
 
-/// Generic API response wrapper
-public struct APIResponse<T: Codable>: Codable {
-    public let success: Bool
-    public let error: String?
-    public let data: T?
+// MARK: - Errors
+
+public enum WebRTCError: LocalizedError {
+    case invalidUsername
+    case notConnected
+    case invalidURL
+    case networkError
+    case serverError(String)
+    case invalidResponse
+    case connectionTimeout
+    case invalidSignal
+    case permissionDenied
+    
+    public var errorDescription: String? {
+        switch self {
+        case .invalidUsername:
+            return "Username is required"
+        case .notConnected:
+            return "Not connected to server"
+        case .invalidURL:
+            return "Invalid server URL"
+        case .networkError:
+            return "Network error occurred"
+        case .serverError(let message):
+            return message
+        case .invalidResponse:
+            return "Invalid response from server"
+        case .connectionTimeout:
+            return "Connection timeout"
+        case .invalidSignal:
+            return "Invalid signal received"
+        case .permissionDenied:
+            return "Camera or microphone permission denied"
+        }
+    }
 }

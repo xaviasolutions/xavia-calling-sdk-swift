@@ -2,31 +2,31 @@
 import PackageDescription
 
 let package = Package(
-    name: "XaviaCallingSDK",
+    name: "WebRTCService",
     platforms: [
-        .iOS(.v13)
+        .iOS(.v15)
     ],
     products: [
         .library(
-            name: "XaviaCallingSDK",
-            targets: ["XaviaCallingSDK"]
-        )
+            name: "WebRTCService",
+            targets: ["WebRTCService"]
+        ),
     ],
     dependencies: [
-        .package(url: "https://github.com/stasel/WebRTC.git", .upToNextMajor("141.0.0")),
-        .package(
-            url: "https://github.com/socketio/socket.io-client-swift.git",
-            .upToNextMajor(from: "16.0.0")
-        )
+        .package(url: "https://github.com/socketio/socket.io-client-swift", from: "16.1.0"),
+        .package(url: "https://github.com/WebRTCHS/ios-webrtc", from: "1.1.65000")
     ],
     targets: [
         .target(
-            name: "XaviaCallingSDK",
+            name: "WebRTCService",
             dependencies: [
-                .product(name: "WebRTC", package: "WebRTC"),
-                .product(name: "SocketIO", package: "socket.io-client-swift")
+                .product(name: "SocketIO", package: "socket.io-client-swift"),
+                .product(name: "WebRTC", package: "ios-webrtc")
             ],
-            path: "Sources"
+            path: "Sources",
+            resources: [
+                .process("PrivacyInfo.xcprivacy") // For App Store privacy requirements
+            ]
         )
     ]
 )
